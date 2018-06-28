@@ -1,3 +1,4 @@
+PWD=$(shell pwd)
 POWLIB=$(PWD)/../..
 COCOTB=$(POWLIB)/cocotb/
 TESTS=$(wildcard */)
