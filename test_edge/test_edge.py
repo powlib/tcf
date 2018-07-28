@@ -12,7 +12,7 @@ def perform_setup(dut):
     Prepares the test environment.
     '''
 
-    T   = 3  # Number of edge-detectors to test. 
+    T   = 6  # Number of edge-detectors to test. 
     tes = [] # List of test environments.
     rcs = [] # List of running coroutines.
 
@@ -45,6 +45,26 @@ def perform_setup(dut):
     # Return the test environments.
     raise ReturnValue(tes)
 
+def getexp(in_trans,init,valen,hpen,hnen):
+    '''
+    Generates the expected values.
+    '''
+
+    out_vals = []
+    prev     = init
+
+    for trans in in_trans:
+
+        out0 = (trans.d & ~prev) if hpen!=0 else 0
+        out1 = (~trans.d & prev) if hnen!=0 else 0
+
+        out  = out0 | out1
+        out_vals.append(out)
+
+        if (trans.vld!=0 or valen==0): prev = trans.d
+
+    return out_vals  
+
 @test(skip = False)
 def test_edge(dut):
     '''
@@ -60,19 +80,34 @@ def test_edge(dut):
     def test(te):
 
         # Specify important data.
-        itrs  = 256
-        width = te.e.d.W
-        valen = te.e.d.EVLD
+        itrs   = 64
+        init   = te.e.d.INIT
+        width  = te.e.d.W
+        valen  = te.e.d.EVLD
+        hpen   = int(te.dut.EHP.value)
+        hnen   = int(te.dut.EHN.value)
         getval = lambda w : randint(0,(1<<w)-1)
 
         # Randomly generate the input transactions.
         in_trans = [ Transaction(d=getval(width),vld=getval(1)) for _ in range(itrs) ]
 
+        # Generate the expected output.
+        out_vals = getexp(in_trans,init,valen,hpen,hnen)
+        #for val in out_vals: te.log.info("out val: {:x}".format(val))
+
         # Write out the transactions.
         for trans in in_trans: te.e.d.append(trans)
 
         # Wait until all transactions have been written out.
-        yield te.e.d.cycle(amount=itrs)
+        yield te.e.d.cycle(amount=itrs+1)
+
+        # Compare actual output values with expected.
+        for idx, exp in enumerate(out_vals):
+            act = te.e.m[idx]
+            te.log.info("Actual: <{:x}>, Expected: <{:x}>...".format(act,exp))
+            if act!=exp: 
+                te.log.error("Test failed!")
+                raise ReturnValue(False)
 
         te.log.info("Test successful...")
         raise ReturnValue(True)
