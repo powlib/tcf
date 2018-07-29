@@ -96,6 +96,19 @@ def test_advance(dut):
 
     raise TestSuccess()
 
+@test(skip=True)
+def test_dynamic(dut):
+    '''
+    This test only operates over the counters configured in dynamic 
+    increment / decrement mode of operation. This is basically the advcance
+    test, however it randomly sets the dynamic x value.
+    '''
+    # Prepare the test envrionments.
+    tes = yield perform_setup(dut) 
+
+    raise TestSuccess()
+    
+
 @test(skip=False)    
 def test_eyeball(dut):
     '''
