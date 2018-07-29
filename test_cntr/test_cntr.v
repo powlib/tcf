@@ -15,8 +15,8 @@ module test_cntr;
     $dumpvars(2, dut2);
   end
 
-  powlib_cntr #(.W(W),.X(1), .INIT(INIT),.ELD(ELD),.EAR(EAR)) dut0 (.cntr(),.nval(),.adv(),.ld(),.clr(),.clk(),.rst());  
-  powlib_cntr #(.W(W),.X(-1),.INIT(INIT),.ELD(ELD),.EAR(EAR)) dut1 (.cntr(),.nval(),.adv(),.ld(),.clr(),.clk(),.rst());
-  powlib_cntr #(.W(W),.INIT(INIT),.ELD(ELD),.EDX(1),.EAR(EAR)) dut2 (.cntr(),.nval(),.adv(),.ld(),.clr(),.dx(),.clk(),.rst());               
+  powlib_cntr #(.W(W),.X(1), .INIT(INIT),.ELD(ELD),        .EAR(EAR)) dut0 (.cntr(),.nval(),.adv(),.ld(),.clr(),      .clk(),.rst());  
+  powlib_cntr #(.W(W),.X(-1),.INIT(INIT),.ELD(ELD),        .EAR(EAR)) dut1 (.cntr(),.nval(),.adv(),.ld(),.clr(),      .clk(),.rst());
+  powlib_cntr #(.W(W),       .INIT(INIT),.ELD(ELD),.EDX(1),.EAR(EAR)) dut2 (.cntr(),.nval(),.adv(),.ld(),.clr(),.dx(),.clk(),.rst());               
     
 endmodule
