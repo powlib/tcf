@@ -7,6 +7,6 @@ module test_swissfifo();
     $dumpvars(2, dut);
   end  
 
-  powlib_swissfifo #(.W(16),.D(16),.S(4),.EASYNC(1),.EDBG(1)) dut ();       
+  powlib_swissfifo #(.W(16),.D(16),.S(4),.EASYNC(1),.EDBG(0)) dut ();       
 
 endmodule

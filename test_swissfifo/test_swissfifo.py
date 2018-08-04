@@ -1,9 +1,13 @@
 from cocotb          import test, coroutine, fork
+from cocotb.triggers import Timer
 from cocotb.result   import TestFailure, TestSuccess, ReturnValue
 from powlib          import Transaction
 from powlib.drivers  import SfifoDriver
 from powlib.utils    import TestEnvironment
 from random          import randint
+import numpy
+import sys
+from powlib.verify   import Block
 
 @coroutine
 def perform_setup(dut):
@@ -15,11 +19,11 @@ def perform_setup(dut):
     te = TestEnvironment(dut=dut.dut, name="testbench")
 
     # Add the clocks and resets.
-    te._add_clock(clock=te.dut.clk, period=(5,"ns"))
-    te._add_reset(reset=te.dut.rst, associated_clock=te.dut.clk)
+    te._add_clock(clock=te.dut.wrclk, period=(5,"ns"))
+    te._add_reset(reset=te.dut.wrrst, associated_clock=te.dut.wrclk)
 
     # Add the synchronous fifo driver to the environment.
-    te.sfd=SfifoDriver(entity=te.dut, clock=te.dut.clk)
+    te.sfd=SfifoDriver(entity=te.dut, clock=te.dut.wrclk)
 
     # Start the environment.
     yield te.start()    
@@ -31,6 +35,9 @@ def perform_setup(dut):
 def test_swissfifo(dut):
 
     te = yield perform_setup(dut)
+
+    te.log.info( str(sys.version_info[0]) )
+    yield Timer(100,"ns")
 
     # width = te.sfd.W
     # total = 1<<width
