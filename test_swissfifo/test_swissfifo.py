@@ -7,7 +7,7 @@ from powlib.utils    import TestEnvironment
 from random          import randint
 import numpy
 import sys
-from powlib.verify   import Block
+from powlib.verify.block   import Block
 
 @coroutine
 def perform_setup(dut):
