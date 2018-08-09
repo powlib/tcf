@@ -6,11 +6,36 @@
 # from random         import randint
 
 from cocotb                             import test, coroutine
+from cocotb.log                         import SimLog
 from cocotb.result                      import ReturnValue
 from cocotb.triggers                    import Timer
 from powlib                             import Namespace, Interface, Transaction
 from powlib.verify.agents.SystemAgent   import ClockDriver, ResetDriver
 from powlib.verify.agents.RegisterAgent import RegisterDriver, RegisterMonitor
+from powlib.verify.blocks               import SwissBlock, ScoreBlock, AssertBlock, SourceBlock
+
+from random                             import randint
+
+class FlipFlopBlock(SwissBlock):
+    '''
+    Implements a simple model for the flip flop. Note that this model
+    performs a double delay. This behavior is accurate since data isn't
+    sampled until the next clock. It takes another cycle for the 
+    monitor to sample the output of the flip flop. This basic model requires
+    an input in order for the output to be returned.
+    '''
+    def __init__(self, init=0, evld=0, width=8):
+        SwissBlock.__init__(self, self._reg_func)
+        self.__reg  = init
+        self.__reg0 = init
+        self.__evld = evld
+        self.__mask = (1<<width)-1
+    def _reg_func(self, trans):
+        q           = self.__reg0
+        self.__reg0 = self.__reg
+        if self.__evld==0 or trans.vld!=0:
+            self.__reg = trans.d & self.__mask
+        return Transaction(q=q)
 
 @coroutine
 def perform_setup(dut):
@@ -20,9 +45,17 @@ def perform_setup(dut):
     rstdrv = ResetDriver(interface=Interface(rst=dut.rst),
                          param_namespace=Namespace(rst=Namespace(associated_clock=dut.clk)))
     regdrv = RegisterDriver(interface=Interface(clk=dut.clk,rst=dut.rst,d=dut.d,vld=dut.vld))
-    regmon = RegisterMonitor(interface=Interface(clk=dut.clk,rst=dut.rst,d=dut.d,q=dut.q))
+    regmon = RegisterMonitor(interface=Interface(clk=dut.clk,rst=dut.rst,q=dut.q))
+    srcblk = SourceBlock()
+    ffblk  = FlipFlopBlock(init=int(dut.INIT.value),evld=int(dut.EVLD.value),width=int(dut.W.value))
+    scrblk = ScoreBlock()
+    astblk = AssertBlock()
 
-    te     = Namespace(regdrv=regdrv,regmon=regmon)
+    srcblk.outport.connect(regdrv.inport)
+    srcblk.outport.connect(ffblk.inport).outport.connect(scrblk.inports(1)).outport.connect(astblk.inport)
+    regmon.outport.connect(scrblk.inports(0))
+
+    te     = Namespace(srcblk=srcblk,width=int(dut.W.value),wait=regmon._synchronize)
 
     yield rstdrv.wait()
 
@@ -30,141 +63,43 @@ def perform_setup(dut):
 
 @test()
 def test_sequential(dut):
+    '''
+    Simply writes data sequentially into the flip flop
+    and checks for the correct output.
+    '''    
 
     # Prepare test environment.
     te = yield perform_setup(dut)   
 
-    te.regdrv.write(data=Transaction(d=0x55))
-    te.regdrv.write(data=Transaction(d=0xFF,vld=0x1)) 
-    te.regdrv.write(data=Transaction(vld=0x0))    
-    yield Timer(100,"ns")
+    total = 1<<te.width
+    for d in range(total): te.srcblk.write(data=Transaction(d=d,vld=0x1))
+    for _ in range(total): yield te.wait()
 
+@test()
+def test_valid(dut):
+    '''
+    Checks to see if the valid flag is working properly.
+    '''
 
-# test_enables = {'sequential' : True,
-#                 'valid'      : True,
-#                 'random'     : True}
+    # Prepare test environment.
+    te = yield perform_setup(dut)   
 
-# @coroutine
-# def perform_setup(dut):
-#     '''
-#     Prepares the test environment.
-#     '''
+    total = 1<<te.width
+    for d in range(total): te.srcblk.write(data=Transaction(d=d,vld=randint(0,1)))
+    for _ in range(total): yield te.wait()
 
-#     # Create the test environment.
-#     te = TestEnvironment(dut=dut, name="testbench")
+@test()
+def test_random(dut):
+    '''
+    Verifies the flip flop with random data. This test
+    also ensures a clock cycle isn't wasted between
+    transactions.
+    '''    
 
-#     # Add the clocks and resets.
-#     te._add_clock(clock=te.dut.clk, period=(5,"ns"))
-#     te._add_reset(reset=te.dut.rst, associated_clock=te.dut.clk)
+    # Prepare test environment.
+    te = yield perform_setup(dut)   
 
-#     # Add the driver.
-#     te.ffd = FlipflopDriver(entity=te.dut, clock=te.dut.clk)
-
-#     # Start the environment.
-#     yield te.start()    
-
-#     # Return the test environment.
-#     raise ReturnValue(te)
-
-# @test(skip = not test_enables['sequential'])
-# def test_sequential(dut):
-#     '''
-#     Simply writes data sequentially into the flip flop
-#     and checks for the correct output.
-#     '''
-
-#     # Prepare test environment.
-#     te = yield perform_setup(dut)
-
-#     width = te.ffd.W
-#     total = 1<<width
-#     te.log.info("Total transactions <{}>...".format(total))
-
-#     # Perform the test.
-#     te.log.info("Performing the test...")
-#     for d in range(total):
-
-#         yield te.ffd.write(d=d)
-#         yield te.ffd.cycle()
-#         q = yield te.ffd.read(sync=False)        
-
-#         te.log.info("Wrote <{}>, Read <{}>...".format(d,q))
-#         if d!=q: raise TestFailure()
-
-#     te.log.info("Test completed successfully...")
-#     raise TestSuccess()
-
-# @test(skip = not test_enables['valid'])
-# def test_valid(dut):
-#     '''
-#     Checks to see if the valid flag is working properly.
-#     '''
-
-#     # Prepare test environment.
-#     te = yield perform_setup(dut)
-
-#     width = te.ffd.W
-#     total = 1<<width
-#     te.log.info("Total transactions <{}>...".format(total))
-
-#     # Perform the test.
-#     te.log.info("Performing the test...")
-
-#     prev_vld_q = yield te.ffd.read()        
-#     for d in range(total):
-
-#         vld = randint(0,1)
-#         yield te.ffd.write(d=d,vld=vld)
-#         yield te.ffd.cycle()
-#         q = yield te.ffd.read(sync=False)                 
-        
-#         if vld==1:
-#             prev_vld_q = q
-#             te.log.info("Valid, Wrote <{}>, Read <{}>...".format(d,q))
-#             if d!=q: raise TestFailure()
-#         else:
-#             te.log.info("Invalid, Wrote <{}>, Read <{}>, Last Valid <{}>...".format(d,q,prev_vld_q))
-#             if prev_vld_q!=q: raise TestFailure()    
-                
-
-#     te.log.info("Test completed successfully...")
-#     raise TestSuccess()
-
-# @test(skip = not test_enables['random'])
-# def test_random(dut):
-#     '''
-#     Verifies the flip flop with random data. This test
-#     also ensures a clock cycle isn't wasted between
-#     transactions.
-#     '''
-
-#     # Prepare test environment.
-#     te = yield perform_setup(dut)
-
-#     width = te.ffd.W
-#     total = 1<<width
-#     te.log.info("Total transactions <{}>...".format(total))    
-
-#     # Perform the test.
-#     te.log.info("Performing the test...")
-
-#     # Write out the randomly generated values.
-#     ds = [randint(0,total-1) for _ in range(total)]
-#     for d in ds: te.ffd.append(transaction=Transaction(d=d,vld=1))
-
-#     # Wait a few clock cycles. See comments below for explanation.
-#     yield te.ffd.cycle() # This cycle waits until the first word (d) is registered.
-#     yield te.ffd.cycle() # This cycle waits until the registered word (q) can be read.
-
-#     # Read out and compare each value.
-#     for d in ds:
-
-#         q = yield te.ffd.read()
-#         te.log.info("Wrote <{}>, Read <{}>...".format(d,q))
-#         if d!=q: raise TestFailure()
-
-#     te.log.info("Test completed successfully...")
-#     raise TestSuccess()
-
+    total = 1<<te.width
+    for d in range(total): te.srcblk.write(data=Transaction(d=randint(0,total-1),vld=randint(0,1)))
+    for _ in range(total): yield te.wait()    
     
-
