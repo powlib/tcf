@@ -1,9 +1,3 @@
-# from cocotb         import test, coroutine, fork
-# from cocotb.result  import TestFailure, TestSuccess, ReturnValue
-# from powlib         import Transaction
-# from powlib.drivers import FlipflopDriver
-# from powlib.utils   import TestEnvironment
-# from random         import randint
 
 from cocotb                             import test, coroutine
 from cocotb.log                         import SimLog
