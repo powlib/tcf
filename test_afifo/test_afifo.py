@@ -1,87 +1,79 @@
-from cocotb          import test, coroutine, fork
-from cocotb.result   import TestFailure, TestSuccess, ReturnValue
-from powlib          import Transaction
-from powlib.drivers  import SfifoDriver
-from powlib.monitors import SfifoMonitor
-from powlib.utils    import TestEnvironment
-from random          import randint
+from cocotb                              import test, coroutine
+from cocotb.log                          import SimLog
+from cocotb.result                       import ReturnValue
+from cocotb.triggers                     import Timer
+from powlib                              import Namespace, Interface, Transaction
+from powlib.verify.agents.SystemAgent    import ClockDriver, ResetDriver
+from powlib.verify.agents.HandshakeAgent import HandshakeWriteDriver, HandshakeReadDriver, HandshakeMonitor
+from powlib.verify.agents.RegisterAgent  import RegisterInterface
+from powlib.verify.blocks                import SwissBlock, ScoreBlock, AssertBlock, SourceBlock
+from random                              import randint
+
+@test()
+def test_basic(dut):
+    '''
+    Simply writes out data into the afifo.
+    '''
+
+    te = yield perform_setup(dut)
+
+    total = 1<<te.width
+    te.source.write(data=Transaction(data=randint(0,total-1)))
+
+    yield Timer(100, "ns")
 
 @coroutine
-def perform_setup(dut, wrclk_prd, wrclk_phs, rdclk_prd, rdclk_phs):
-    '''
-    Prepares the test environment.
-    '''
+def perform_setup(dut):
 
-    # Create the test environment.
-    te = TestEnvironment(dut=dut.dut, name="testbench")
+    # Create clock and reset drivers.
+    fifo = dut.dut
+    clkdrv = ClockDriver(interface=Interface(wrclk=fifo.wrclk,
+                                             rdclk=fifo.rdclk),
+                         param_namespace=Namespace(wrclk=Namespace(period=(randint(1,10),"ns")),
+                                                   rdclk=Namespace(period=(randint(1,10),"ns"))))
+    rstdrv = ResetDriver(interface=Interface(wrrst=fifo.wrrst,
+                                             rdrst=fifo.rdrst),
+                         param_namespace=Namespace(wrrst=Namespace(associated_clock=fifo.wrclk),
+                                                   rdrst=Namespace(associated_clock=fifo.rdclk)))
 
-    # Add the clocks and resets.
-    te._add_clock(clock=te.dut.wrclk, period=wrclk_prd, phase=wrclk_phs)
-    te._add_reset(reset=te.dut.wrrst, associated_clock=te.dut.wrclk)
-    te._add_clock(clock=te.dut.rdclk, period=rdclk_prd, phase=rdclk_phs)
-    te._add_reset(reset=te.dut.rdrst, associated_clock=te.dut.rdclk)
+    # Create the components.
+    wrdrv  = HandshakeWriteDriver(interface=Interface(clk=fifo.wrclk,
+                                                      rst=fifo.wrrst,
+                                                      vld=fifo.wrvld,
+                                                      rdy=fifo.wrrdy,
+                                                      data=fifo.wrdata))
+    rdintr = Interface(clk=fifo.rdclk,
+                       rst=fifo.rdrst,
+                       vld=fifo.rdvld,
+                       rdy=fifo.rdrdy,
+                       data=fifo.rddata)
+    rddrv  = HandshakeReadDriver(interface=rdintr) 
+    rdmon  = HandshakeMonitor(interface=rdintr)
 
-    # Add the aynchronous fifo driver to the environment. The
-    # asynchronous FIFO driver is regarded as two synchronous FIFOs,
-    # one for each domain.
-    te.wrffd = SfifoDriver(entity=te.dut, clock=te.dut.wrclk)
-    te.rdffd = SfifoDriver(entity=te.dut, clock=te.dut.rdclk)
-    te.rdffm = SfifoMonitor(wrrddriver=te.rdffd, reset=te.dut.rdrst)
+    # Needed for waiting for clock cycles.
+    wait   = RegisterInterface(clk=fifo.rdclk,
+                               rst=fifo.rdrst)._synchronize
 
-    # Start the environment.
-    yield te.start()    
+    # Generate a block whose only purpose is for counting
+    # the number of outputs.
+    cntns  = Namespace(count=0)
+    def cntfun(ignore): cntns.count += 1
+    cntblk = SwissBlock(trans_func=cntfun)
 
-    # Return the test environment.
-    raise ReturnValue(te)
-    
-@test()
-def test_afifo(dut):
-    '''
-    Performs a basic test of the asynchronous FIFO.
-    '''
+    # Other nodes.
+    source = SourceBlock()
+    score  = ScoreBlock()
+    check  = AssertBlock()
 
-    # Create the test environment.
-    te = yield perform_setup(dut=dut,
-                             wrclk_prd=(3,"ns"),
-                             wrclk_phs=(2,"ns"),
-                             rdclk_prd=(10,"ns"),
-                             rdclk_phs=(0,"ns"))
-                          
-    width  = te.wrffd.W
-    total  = 1<<width
-    depth  = te.wrffd.D
-    size   = depth*4
-    data   = lambda : randint(0, total-1)
-    cycles = lambda : randint(1, size)
-    exps   = []
-    acts   = []
+    # Connect the blocks together to create the system.
+    source.outport.connect(wrdrv.inport)
+    source.outport.connect(score.inports(0)).outport.connect(check.inport)
+    rdmon.outport.connect(score.inports(1))
+    rdmon.outport.connect(cntblk.inport)
 
-    # Create and write the data. 
-    yield te.wrffd.cycle()
-    exps.extend([data() for _ in range(size)])
-    for exp in exps: te.wrffd.append(Transaction(wrdata=exp))    
-    te.wrffd.append(Transaction())
-    
-    # Randomly start and stop the monitor; that is,
-    # toggle the rdrdy signal.
-    yield te.wrffd.cycle(amount=cycles())
-    te.rdffm.start()
-    yield te.rdffd.cycle(amount=cycles())
-    te.rdffm.stop()
-    yield te.rdffd.cycle(amount=cycles())
-    te.rdffm.start()
-    yield te.wrffd.cycle(amount=cycles())
-    
-    # Just wait a bunch of time to ensure all data has been read
-    # out of the asynchronous FIFO.
-    yield te.wrffd.cycle(amount=size)
-    yield te.rdffd.cycle(amount=size)
-    
-    for i, exp in enumerate(exps):
-        act = te.rdffm[i]
-        te.log.info("Exp: {}, Act: {}".format(exp,act))
-        if exp!=act: raise TestFailure()
-        
-    raise TestSuccess()
-    
-    
+    # Wrap up the objects needed for each test.
+    te = Namespace(source=source,width=int(fifo.W.value),cntns=cntns,wait=wait)
+
+    yield rstdrv.wait()
+
+    raise ReturnValue(te)     
