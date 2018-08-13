@@ -7,8 +7,80 @@ from powlib.verify.agents.SystemAgent    import ClockDriver, ResetDriver
 from powlib.verify.agents.HandshakeAgent import HandshakeWriteDriver, HandshakeReadDriver, HandshakeMonitor, \
                                                 CoinTossAllow, AlwaysAllow, NeverAllow
 from powlib.verify.agents.RegisterAgent  import RegisterInterface
-from powlib.verify.blocks                import SwissBlock, ScoreBlock, AssertBlock, SucceedBlock, SourceBlock
+from powlib.verify.blocks                import SwissBlock, ScoreBlock, AssertBlock, SucceedBlock, SourceBlock, AnyCondFunc
 from random                              import randint
+
+@test(skip=False)
+def test_basic(dut):
+    '''
+    Simply write random values into the synchronous fifos.
+    '''
+
+    # Generate the testbench environment.
+    total     = 256
+    max_value = (1<<32)-1
+    te        = yield perform_setup(dut, total)
+    
+    # Write out the data.
+    for _ in range(total): te.source.write(data=Transaction(data=randint(0,max_value)))
+
+    # If something goes wrong, this test can timeout.
+    yield Timer(1000, "us")
+    te.log.info("Timed out!")
+    raise TestFailure()   
+
+@test(skip=False)
+def test_congestion(dut):
+    '''
+    Writes out data into the afifo, however
+    congestion is simulated.
+    '''   
+
+    # Generate the testbench environment.
+    total     = 256
+    max_value = (1<<32)-1
+    te        = yield perform_setup(dut, total)
+
+    # Simulate congestion.
+    te.setwrallow(CoinTossAllow)
+    te.setrdallow(CoinTossAllow)   
+
+    # Write out the data.
+    for _ in range(total): te.source.write(data=Transaction(data=randint(0,max_value)))    
+
+    # If something goes wrong, this test can timeout.
+    yield Timer(1000, "us")
+    te.log.info("Timed out!")
+    raise TestFailure() 
+
+@test(skip=False)
+def test_backpressure(dut):
+    '''
+    Verify the afifo's ability to handle being completely filled, and
+    then emptied.
+    '''    
+
+    # Generate the testbench environment.
+    total     = 256
+    max_value = (1<<32)-1
+    te        = yield perform_setup(dut, total)
+
+    # Disable the reading interface.    
+    te.setrdallow(NeverAllow)   
+
+    # Write out the data.
+    for _ in range(total): te.source.write(data=Transaction(data=randint(0,max_value)))  
+
+    # Wait until the write ready is de-asserted.
+    yield Timer(1, "us")
+
+    # Allow the data to pass through.
+    te.setrdallow(CoinTossAllow)    
+
+    # If something goes wrong, this test can timeout.
+    yield Timer(1000, "us")
+    te.log.info("Timed out!")
+    raise TestFailure()    
 
 class CountBlock(SwissBlock):
     '''
@@ -24,6 +96,35 @@ class CountBlock(SwissBlock):
     def _count_func(self, *ignore):
         self.__count += 1
         return self.__count==self.__total
+
+class NearlyFullBlock(SwissBlock):
+    '''
+    Models the behavior of the nearly full flag.
+    '''
+
+    def __init__(self, nfs, depth):
+        SwissBlock.__init__(self=self, 
+                            trans_func=self._nearly_func, 
+                            cond_func=AnyCondFunc,
+                            inputs=2)        
+        self.__depth = depth
+        self.__count = 0
+        self.__nfs   = nfs
+        self.__reg   = 0
+
+    def _nearly_func(self, inval, outval):
+
+        if inval is not None:    
+            nf = self.__reg            
+            self.__count += 1
+
+        if outval is not None:
+            self.__count -= 1
+
+        self.__reg = 1 if self.__depth<=(self.__nfs+1+self.__count) else 0            
+
+        if inval is not None:             
+            return Transaction(nf=nf)
 
 @coroutine
 def perform_setup(dut, total):
@@ -45,10 +146,12 @@ def perform_setup(dut, total):
     srcblk.outport.connect(cntblk.inports(0)).outport.connect(passblk.inport)
 
     # Create the agents for each dut.    
-    rst_dict = {}
+    rst_dict       = {}
     rstparams_dict = {}
-    clk_dict = {}
+    clk_dict       = {}
     clkparams_dict = {}
+    setwrallows    = []
+    setrdallows    = []
     for each_agent in range(T):
 
         # Get sim handle of fifo.
@@ -80,19 +183,30 @@ def perform_setup(dut, total):
                                                      vld=fifo.rdvld,
                                                      rdy=fifo.rdrdy,
                                                      data=fifo.rddata))
+        # Create the nearly full block.
+        nfblk = NearlyFullBlock(nfs=int(fifo.NFS.value),depth=int(fifo.D.value))
+
+        # Connect the input and output monitors to the nearly full block.
+        wrdatamon.outport.connect(nfblk.inports(0))
+        rdmon.outport.connect(nfblk.inports(1))
 
         # Create the scoreboards.
         datscrblk = ScoreBlock(name="dut{}.data".format(each_agent))
+        nfscrblk  = ScoreBlock(name="dut{}.nf".format(each_agent))
 
         # Connect the source block to driver.
         srcblk.outport.connect(wrdrv.inport)
 
-        # Connect the scoreboard.
+        # Connect the data scoreboard.
         wrdatamon.outport.connect(datscrblk.inports(0)).outport.connect(failblk.inport)
         rdmon.outport.connect(datscrblk.inports(1))
 
         # Connect the read monitor to the count block as well.
         rdmon.outport.connect(cntblk.inports(1+each_agent))
+
+        # Connect nearly full scoreboard.
+        nfblk.outport.connect(nfscrblk.inports(0)).outport.connect(failblk.inport)
+        wrnfmon.outport.connect(nfscrblk.inports(1))
 
         # Pack the reset and clock.
         rst_name                 = "dut{}rst".format(each_agent)
@@ -102,6 +216,10 @@ def perform_setup(dut, total):
         clk_dict[clk_name]       = fifo.clk        
         clkparams_dict[clk_name] = Namespace(period=(randint(2,8),"ns"))
 
+        # Pack the set allows.
+        setwrallows.append(lambda x : setattr(wrdrv,"allow",x))
+        setrdallows.append(lambda x : setattr(rddrv,"allow",x))
+
     # Generate the system agents.
     clkdrv = ClockDriver(interface=Interface(**clk_dict),
                          param_namespace=Namespace(**clkparams_dict))
@@ -109,7 +227,9 @@ def perform_setup(dut, total):
                          param_namespace=Namespace(**rstparams_dict))
 
     # Create the testbench environment namespace.
-    te = Namespace(source=srcblk)
+    te = Namespace(source=srcblk,
+                   setwrallow=lambda x : [setallow(x) for setallow in setwrallows],
+                   setrdallow=lambda x : [setallow(x) for setallow in setrdallows] )
 
     # Yield until all reset have been de-asserted.
     yield rstdrv.wait()
@@ -117,23 +237,4 @@ def perform_setup(dut, total):
     # Returnthe testbench environment for the tests.
     raise ReturnValue(te)
 
-
-@test()
-def test_basic(dut):
-    '''
-    Simply write random values into the synchronous fifos.
-    '''
-
-    # Generate the testbench environment.
-    total     = 256
-    max_value = (1<<32)-1
-    te        = yield perform_setup(dut, total)
-    
-    # Write out the data.
-    for _ in range(total): te.source.write(data=Transaction(data=randint(0,max_value)))
-
-    # If something goes wrong, this test can timeout.
-    yield Timer(1000, "us")
-    te.log.info("Timed out!")
-    raise TestFailure()       
 
