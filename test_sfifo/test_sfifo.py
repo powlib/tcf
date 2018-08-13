@@ -2,6 +2,7 @@ from cocotb                              import test, coroutine
 from cocotb.log                          import SimLog
 from cocotb.result                       import ReturnValue, TestFailure
 from cocotb.triggers                     import Timer, FallingEdge
+from cocotb.utils                        import get_sim_time
 from powlib                              import Namespace, Interface, Transaction
 from powlib.verify.agents.SystemAgent    import ClockDriver, ResetDriver
 from powlib.verify.agents.HandshakeAgent import HandshakeWriteDriver, HandshakeReadDriver, HandshakeMonitor, \
@@ -17,7 +18,7 @@ def test_basic(dut):
     '''
 
     # Generate the testbench environment.
-    total     = 256
+    total     = 128
     max_value = (1<<32)-1
     te        = yield perform_setup(dut, total)
     
@@ -37,7 +38,7 @@ def test_congestion(dut):
     '''   
 
     # Generate the testbench environment.
-    total     = 256
+    total     = 128
     max_value = (1<<32)-1
     te        = yield perform_setup(dut, total)
 
@@ -61,7 +62,7 @@ def test_backpressure(dut):
     '''    
 
     # Generate the testbench environment.
-    total     = 256
+    total     = 128
     max_value = (1<<32)-1
     te        = yield perform_setup(dut, total)
 
@@ -96,35 +97,6 @@ class CountBlock(SwissBlock):
     def _count_func(self, *ignore):
         self.__count += 1
         return self.__count==self.__total
-
-class NearlyFullBlock(SwissBlock):
-    '''
-    Models the behavior of the nearly full flag.
-    '''
-
-    def __init__(self, nfs, depth):
-        SwissBlock.__init__(self=self, 
-                            trans_func=self._nearly_func, 
-                            cond_func=AnyCondFunc,
-                            inputs=2)        
-        self.__depth = depth
-        self.__count = 0
-        self.__nfs   = nfs
-        self.__reg   = 0
-
-    def _nearly_func(self, inval, outval):
-
-        if inval is not None:    
-            nf = self.__reg            
-            self.__count += 1
-
-        if outval is not None:
-            self.__count -= 1
-
-        self.__reg = 1 if self.__depth<=(self.__nfs+1+self.__count) else 0            
-
-        if inval is not None:             
-            return Transaction(nf=nf)
 
 @coroutine
 def perform_setup(dut, total):
@@ -183,16 +155,9 @@ def perform_setup(dut, total):
                                                      vld=fifo.rdvld,
                                                      rdy=fifo.rdrdy,
                                                      data=fifo.rddata))
-        # Create the nearly full block.
-        nfblk = NearlyFullBlock(nfs=int(fifo.NFS.value),depth=int(fifo.D.value))
-
-        # Connect the input and output monitors to the nearly full block.
-        wrdatamon.outport.connect(nfblk.inports(0))
-        rdmon.outport.connect(nfblk.inports(1))
 
         # Create the scoreboards.
         datscrblk = ScoreBlock(name="dut{}.data".format(each_agent))
-        nfscrblk  = ScoreBlock(name="dut{}.nf".format(each_agent))
 
         # Connect the source block to driver.
         srcblk.outport.connect(wrdrv.inport)
@@ -203,10 +168,6 @@ def perform_setup(dut, total):
 
         # Connect the read monitor to the count block as well.
         rdmon.outport.connect(cntblk.inports(1+each_agent))
-
-        # Connect nearly full scoreboard.
-        nfblk.outport.connect(nfscrblk.inports(0)).outport.connect(failblk.inport)
-        wrnfmon.outport.connect(nfscrblk.inports(1))
 
         # Pack the reset and clock.
         rst_name                 = "dut{}rst".format(each_agent)
