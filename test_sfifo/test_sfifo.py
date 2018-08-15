@@ -33,7 +33,7 @@ def test_basic(dut):
 @test(skip=False)
 def test_congestion(dut):
     '''
-    Writes out data into the afifo, however
+    Writes out data into the sfifo, however
     congestion is simulated.
     '''   
 
@@ -57,7 +57,7 @@ def test_congestion(dut):
 @test(skip=False)
 def test_backpressure(dut):
     '''
-    Verify the afifo's ability to handle being completely filled, and
+    Verify the sfifo's ability to handle being completely filled, and
     then emptied.
     '''    
 
