@@ -122,8 +122,8 @@ def perform_setup(dut, total):
     rstparams_dict = {}
     clk_dict       = {}
     clkparams_dict = {}
-    setwrallows    = []
-    setrdallows    = []
+    wrdrvs         = []
+    rddrvs         = []
     for each_agent in range(T):
 
         # Get sim handle of fifo.
@@ -178,8 +178,8 @@ def perform_setup(dut, total):
         clkparams_dict[clk_name] = Namespace(period=(randint(2,8),"ns"))
 
         # Pack the set allows.
-        setwrallows.append(lambda x : setattr(wrdrv,"allow",x))
-        setrdallows.append(lambda x : setattr(rddrv,"allow",x))
+        wrdrvs.append(wrdrv)
+        rddrvs.append(rddrv)
 
     # Generate the system agents.
     clkdrv = ClockDriver(interface=Interface(**clk_dict),
@@ -189,8 +189,8 @@ def perform_setup(dut, total):
 
     # Create the testbench environment namespace.
     te = Namespace(source=srcblk,
-                   setwrallow=lambda x : [setallow(x) for setallow in setwrallows],
-                   setrdallow=lambda x : [setallow(x) for setallow in setrdallows] )
+                   setwrallow=lambda x : [setattr(wrdrv,"allow",x) for wrdrv in wrdrvs],
+                   setrdallow=lambda x : [setattr(rddrv,"allow",x) for rddrv in rddrvs] )
 
     # Yield until all reset have been de-asserted.
     yield rstdrv.wait()

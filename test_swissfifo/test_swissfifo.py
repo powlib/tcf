@@ -14,7 +14,7 @@ from random                              import randint
 @test(skip=False)
 def test_basic(dut):
     '''
-    Simply write random values into the synchronous fifos.
+    Simply write random values into the swiss fifos.
     '''
 
     # Generate the testbench environment.
@@ -33,7 +33,7 @@ def test_basic(dut):
 @test(skip=False)
 def test_congestion(dut):
     '''
-    Writes out data into the sfifo, however
+    Writes out data into the swiss fifos, however
     congestion is simulated.
     '''   
 
@@ -57,7 +57,7 @@ def test_congestion(dut):
 @test(skip=False)
 def test_backpressure(dut):
     '''
-    Verify the sfifo's ability to handle being completely filled, and
+    Verify the swiss fifo's ability to handle being completely filled, and
     then emptied.
     '''    
 
