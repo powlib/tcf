@@ -4,7 +4,7 @@ module test_buscross();
 
   initial begin
     $dumpfile("waveform.vcd");
-    $dumpvars(3, dut0);    
+    $dumpvars(10, dut0);    
   end  
 
 
@@ -14,20 +14,31 @@ endmodule
 
 module test_buscross_dut();
 
-  parameter                   ID        = "BUSCROSS";
-  parameter                   D         = 8;
-  parameter                   S         = 0;
-  parameter                   EDBG      = 0;
-  parameter                   B_AW      = 16;
-  parameter                   B_DW      = 32;
-  parameter                   B_WRS     = 3;
-  parameter                   B_RDS     = 4;
-  parameter [B_RDS*B_AW-1:0]  B_BASES   = {16'h0000,16'h2000,16'h4000,16'h0000};
-  parameter [B_RDS*B_AW-1:0]  B_SIZES   = {16'h1FFF,16'h1FFF,16'h1FFF,16'hFFFF};
-  parameter [B_WRS*B_RDS-1:0] B_EASYNCS = {3'b000,3'b000,3'b000,3'b000};
-  parameter                   B_D       = 8;
-  parameter                   B_DD      = 4;
-  parameter                   B_S       = 0;
+  parameter                       ID          = "BUSCROSS";
+  parameter                       D           = 8;
+  parameter                       S           = 0;
+  parameter                       EDBG        = 0;
+  parameter                       B_AW        = 16;
+  parameter                       B_DW        = 32;
+  parameter                       B_WRS       = 3;
+  parameter                       B_RDS       = 4;
+  parameter [B_RDS*B_AW-1:0]      B_BASES     = {16'h0000,16'h2000,16'h4000,16'h0000};
+  parameter [B_RDS*B_AW-1:0]      B_SIZES     = {16'h1FFF,16'h1FFF,16'h1FFF,16'hFFFF};
+  parameter [B_WRS*B_RDS-1:0]     B_EASYNCS   = {3'b010,3'b010,3'b111,3'b010};
+  parameter                       B_CLKPRDW   = 4;
+  parameter [B_WRS*B_CLKPRDW-1:0] B_WRCLKPRDS = {4'd5,4'd10,4'd5};
+  parameter [B_RDS*B_CLKPRDW-1:0] B_RDCLKPRDS = {4'd5,4'd5,4'd3,4'd5};
+  parameter                       B_D         = 8;
+  parameter                       B_DD        = 4;
+  parameter                       B_S         = 0;
+
+  // Below are cocotb work-arounds since it doesn't support
+  // vector indexing.
+  wire      [0:0]             wrclkscc [0:B_WRS-1];
+  wire      [0:0]             wrrstscc [0:B_WRS-1];
+
+  wire      [0:0]             rdclkscc [0:B_RDS-1];
+  wire      [0:0]             rdrstscc [0:B_RDS-1];  
 
   wire      [B_WRS-1:0]       wrclks;
   wire      [B_WRS-1:0]       wrrsts;
@@ -56,6 +67,24 @@ module test_buscross_dut();
   genvar                      i, j;
 
   for (i=0; i<B_WRS; i=i+1) begin
+    assign wrclks[i]                = wrclkscc[i][0];
+    assign wrrsts[i]                = wrrstscc[i][0];
+  end
+  for (j=0; j<B_RDS; j=j+1) begin
+    assign rdclks[j]                = rdclkscc[j][0];
+    assign rdrsts[j]                = rdrstscc[j][0];    
+  end
+
+  // for (i=0; i<B_WRS; i=i+1) begin
+  //   for (j=0; j<B_RDS; j=j+1) begin
+  //     if (B_EASYNCS[i+j*B_WRS]==0) begin
+  //       assign rdclks[j] = wrclks[i];
+  //       assign rdrsts[j] = wrrsts[i];
+  //     end      
+  //   end
+  // end 
+
+  for (i=0; i<B_WRS; i=i+1) begin
     assign datas_s0_0[i*B_DW+:B_DW] = wrdatas[i];
     assign addrs_s0_0[i*B_AW+:B_AW] = wraddrs[i];
     assign vlds_s0_0[i]             = wrvlds[i];
@@ -68,15 +97,6 @@ module test_buscross_dut();
     assign rdvlds[j]                = vlds_s1_0[j];
     assign rdrdys[j]                = rdys_s1_0[j];
   end
-
-  for (i=0; i<B_WRS; i=i+1) begin
-    for (j=0; j<B_RDS; j=j+1) begin
-      if (B_EASYNCS[i+j*B_WRS]==0) begin
-        assign rdclks[j] = wrclks[i];
-        assign rdrsts[j] = wrrsts[i];
-      end
-    end
-  end 
 
   powlib_buscross #(
     .NFS(0),.D(D),.S(S),.EAR(0),.ID(ID),.EDBG(EDBG),
