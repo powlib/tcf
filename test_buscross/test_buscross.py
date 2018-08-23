@@ -33,20 +33,34 @@ def perform_setup(dut):
         brds     = int(bus.B_RDS.value)                  # Total read interfaces
         bclkprdw = int(bus.B_CLKPRDW.value)              # Gets the clock period width.
 
-        # Pack the resets and clock.        
+        # Pack clock/resets and create agents.        
         synclst =      [("wr",each_sync) for each_sync in range(bwrs)]
         synclst.extend([("rd",each_sync) for each_sync in range(brds)])
         for intr, idx in synclst:
 
-            # Acquire signal
-            rst_sig = getattr(bus,"{}rstscc".format(intr))[idx]
-            clk_sig = getattr(bus,"{}clkscc".format(intr))[idx]
+            # Acquire signals
+            rst_sig  = getattr(bus,"{}rstscc".format(intr))[idx]
+            clk_sig  = getattr(bus,"{}clkscc".format(intr))[idx]
+            vld_sig  = getattr(bus,"{}vldscc".format(intr))[idx]
+            rdy_sig  = getattr(bus,"{}rdyscc".format(intr))[idx]
+            data_sig = getattr(bus,"{}datas".format(intr))[idx]
+            addr_sig = getattr(bus,"{}addrs".format(intr))[idx]
 
-            # Create name identifier
+            # Create the agents.
+            inter = Interface(rst=rst_sig,
+                              clk=clk_sig,
+                              vld=vld_sig,
+                              rdy=rdy_sig,
+                              data=data_sig,
+                              addr=addr_sig)
+            drv = HandshakeWriteDriver(interface=inter) if intr=="wr" else HandshakeReadDriver(interface=inter)
+            mon = HandshakeMonitor(interface=inter)
+
+            # Create name identifiers for clocks and resets.
             rst_nme = "dut{}{}rst{}".format(each_dut,intr,idx)
             clk_nme = "dut{}{}clk{}".format(each_dut,intr,idx)
 
-            # Get period.
+            # Get periods.
             clkprds = int(getattr(bus,"B_{}CLKPRDS".format(intr.upper())).value)
             prdval  = (clkprds>>(bclkprdw*idx))&((1<<bclkprdw)-1)
 

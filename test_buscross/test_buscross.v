@@ -36,9 +36,12 @@ module test_buscross_dut();
   // vector indexing.
   wire      [0:0]             wrclkscc [0:B_WRS-1];
   wire      [0:0]             wrrstscc [0:B_WRS-1];
-
+  wire      [0:0]             wrvldscc [0:B_WRS-1];
+  wire      [0:0]             wrrdyscc [0:B_WRS-1];  
   wire      [0:0]             rdclkscc [0:B_RDS-1];
   wire      [0:0]             rdrstscc [0:B_RDS-1];  
+  wire      [0:0]             rdvldscc [0:B_RDS-1];
+  wire      [0:0]             rdrdyscc [0:B_RDS-1];   
 
   wire      [B_WRS-1:0]       wrclks;
   wire      [B_WRS-1:0]       wrrsts;
@@ -69,20 +72,15 @@ module test_buscross_dut();
   for (i=0; i<B_WRS; i=i+1) begin
     assign wrclks[i]                = wrclkscc[i][0];
     assign wrrsts[i]                = wrrstscc[i][0];
+    assign wrvlds[i]                = wrvldscc[i][0];
+    assign wrrdyscc[i][0]           = wrrdys[i];
   end
   for (j=0; j<B_RDS; j=j+1) begin
     assign rdclks[j]                = rdclkscc[j][0];
-    assign rdrsts[j]                = rdrstscc[j][0];    
+    assign rdrsts[j]                = rdrstscc[j][0];
+    assign rdvldscc[j][0]           = rdvlds[j];
+    assign rdrdys[j]                = rdrdyscc[j][0];   
   end
-
-  // for (i=0; i<B_WRS; i=i+1) begin
-  //   for (j=0; j<B_RDS; j=j+1) begin
-  //     if (B_EASYNCS[i+j*B_WRS]==0) begin
-  //       assign rdclks[j] = wrclks[i];
-  //       assign rdrsts[j] = wrrsts[i];
-  //     end      
-  //   end
-  // end 
 
   for (i=0; i<B_WRS; i=i+1) begin
     assign datas_s0_0[i*B_DW+:B_DW] = wrdatas[i];
@@ -95,7 +93,7 @@ module test_buscross_dut();
     assign rddatas[j]               = datas_s1_0[j*B_DW+:B_DW];
     assign rdaddrs[j]               = addrs_s1_0[j*B_AW+:B_AW];
     assign rdvlds[j]                = vlds_s1_0[j];
-    assign rdrdys[j]                = rdys_s1_0[j];
+    assign rdys_s1_0[j]             = rdrdys[j];
   end
 
   powlib_buscross #(
