@@ -14,6 +14,15 @@ from powlib.verify.blocks                import SwissBlock, ScoreBlock, AssertBl
 from random                              import randint
 from itertools                           import product
 
+def BinaryToInt(trans):
+    '''
+    Converts a transaction of 
+    binary values into a new transaction
+    of integers.
+    '''
+    return Transaction(addr=int(trans.addr),
+                       data=int(trans.data))
+
 def ChangeWidth(trans,aw,dw):
     '''
     Creates a new transaction whose
@@ -116,7 +125,6 @@ class BusCrossBlock(Block):
                     if trans.addr in range(param.base,param.base+param.size+1):
                         outport.write(data=trans)
 
-
 @coroutine
 def perform_setup(dut):
 
@@ -125,6 +133,7 @@ def perform_setup(dut):
     # The following structures need to be created
     # prior to another initialization.
     sizes_dict   = {}
+    gat_blk_dict = {}
     src_blk_dict = {}
     rst_sig_dict = {}
     rst_prm_dict = {}
@@ -198,11 +207,10 @@ def perform_setup(dut):
 
                 # Create blocks.                
                 src_blk = SourceBlock()
-                msk_blk = SwissBlock(trans_func=lambda trans : ChangeWidth(trans=trans,aw=baw,dw=bwd))
-                gat_blk = GatherBlock()
-                ComposeBlocks(src_blk,msk_blk,drv)
+                msk_blk = SwissBlock(trans_func=lambda trans : ChangeWidth(trans=trans,aw=baw,dw=bwd))                
+                ComposedBlock(src_blk,msk_blk,drv)
                 msk_blk.outport.connect(mdl_blk.inports(idx))
-                msk_blk.outport.connect(PrintBlock("bus{}.wr{}".format(each_dut,idx)).inport)
+                #msk_blk.outport.connect(PrintBlock("bus{}.wr{}".format(each_dut,idx)).inport)
 
                 # Store the source blocks.
                 src_blk_dict[(each_dut,idx)] = src_blk
@@ -218,13 +226,23 @@ def perform_setup(dut):
                 out_prms_lst.append(Namespace(base=base,size=size)) 
 
                 # Create a scoreboard for each reading interface.
-                sb_blk = ScoreBlock(name="bus{}.rd{}".format(each_dut,idx))
-                mdl_blk.outports(idx).connect(sb_blk.inports(0))
-                mon.outport.connect(sb_blk.inports(1))                
-                ComposeBlocks(sb_blk,ast_blk)
-                mon.outport.connect(PrintBlock("bus{}.rd{}".format(each_dut,idx)).inport)
-                  
+                sb_blk      = ScoreBlock(name="bus{}.rd{}".format(each_dut,idx))
+                cvt_blk     = SwissBlock(trans_func=BinaryToInt)
+                gat_exp_blk = GatherBlock()
+                gat_act_blk = GatherBlock()
 
+                # Perform connections. The gather blocks are necessary to ensure
+                # sets of data are compared, this way order can be ignored.
+                mdl_blk.outports(idx).connect(gat_exp_blk.inport).outport.connect(sb_blk.inports(0))
+                ComposedBlock(mon,cvt_blk,gat_act_blk).outport.connect(sb_blk.inports(1))                
+                ComposedBlock(sb_blk,ast_blk)
+                #mon.outport.connect(PrintBlock("bus{}.rd{}".format(each_dut,idx)).inport)
+
+                # Store the gather blocks so that the user can specify when a comparison
+                # should occur.
+                gat_blk_dict[(each_dut,idx,"exp")] = gat_exp_blk
+                gat_blk_dict[(each_dut,idx,"act")] = gat_act_blk
+                  
     # Generate the system agents.
     clk_drv = ClockDriver(interface=Interface(**clk_sig_dict),
                           param_namespace=Namespace(**clk_prm_dict))
@@ -236,6 +254,7 @@ def perform_setup(dut):
 
     # Create testbench environment namespace.
     te = Namespace(sources   = lambda bus, idx : src_blk_dict[(bus,idx)],
+                   gathers   = lambda bus, idx, exp_act : gat_blk_dict[(bus,idx,exp_act)],
                    buses     = TDUTS,
                    inputs    = lambda bus : sizes_dict[(bus,"wr")],
                    outputs   = lambda bus : sizes_dict[(bus,"rd")])
@@ -252,7 +271,7 @@ def test_basic(dut):
     te = yield perform_setup(dut)
 
     rword  = lambda : randint(0,(1<<32)-1)
-    writes = 2
+    writes = 30
 
     for each_write in range(writes):
         for each_bus in range(te.buses):
@@ -260,5 +279,11 @@ def test_basic(dut):
                 source = te.sources(bus=each_bus,idx=each_source)
                 source.write(data=Transaction(addr=rword(),data=rword()))
 
-    yield Timer(1000,"ns")
+    yield Timer(4000,"ns")
+
+    for each_bus in range(te.buses):
+        for each_set in range(te.outputs(each_bus)):
+            te.gathers(bus=each_bus,idx=each_set,exp_act="exp").perform()
+            te.gathers(bus=each_bus,idx=each_set,exp_act="act").perform()
+
     pass 
