@@ -14,6 +14,99 @@ from powlib.verify.blocks                import SwissBlock, ScoreBlock, AssertBl
 from random                              import randint
 from itertools                           import product
 
+################################################################
+# TESTS TESTS TESTS TESTS TESTS TESTS TESTS TESTS TESTS TESTS ##
+################################################################
+# TESTS TESTS TESTS TESTS TESTS TESTS TESTS TESTS TESTS TESTS ##
+################################################################
+# TESTS TESTS TESTS TESTS TESTS TESTS TESTS TESTS TESTS TESTS ##
+################################################################
+
+@test(skip=False)
+def test_basic(dut):
+    '''
+    Simply write random values into the crossbar buses.
+
+    It's critical the yield Timer is set to wait long enough until
+    all the data passes through!
+    '''
+
+    te = yield perform_setup(dut)
+
+    rword  = lambda : randint(0,(1<<32)-1)
+    writes = 512
+
+    # Simply write a bunch of random data with random addresses into
+    # the writing interfaces of the crossbar.
+    for each_write in range(writes):
+        for each_bus in range(te.buses):
+            for each_source in range(te.inputs(each_bus)):
+                source = te.sources(bus=each_bus,idx=each_source)
+                source.write(data=Transaction(addr=rword(),data=rword()))
+
+    # This wait needs to be long enough to ensure all the data has 
+    # passed through the crossbar.
+    yield Timer(16,"us")
+
+    # Initiate the comparison with the scoreboard. Comparisons are
+    # completed with sets since currently the reading interfaces have
+    # no way on knowing where their data came from.
+    for each_bus in range(te.buses):
+        for each_set in range(te.outputs(each_bus)):
+            te.gathers(bus=each_bus,idx=each_set,exp_act="exp").perform()
+            te.gathers(bus=each_bus,idx=each_set,exp_act="act").perform()
+
+@test(skip=False)
+def test_congestion(dut):
+    '''
+    Effectively performs the same operations as test_basic, however
+    congestion is simulated.
+
+    THERE'S ACTUALLY A FUNDAMENTAL PROBLEM WITH THIS TEST. Take note 
+    of the yield Timer that separates the data injection and the comparison.
+    Due to the random nature of the test, there's a chance that the amount of
+    time needed to inject the data and for that data to pass through the interconnect
+    could be greater than the wait. If this happens, the comparison will trigger
+    prematurely and fail.
+
+    SO, at some point, this will need to be fixed... xD
+    '''    
+
+    te     = yield perform_setup(dut)
+
+    rword  = lambda : randint(0,(1<<32)-1)
+    writes = 256    
+
+    # Configure the allows of the reading interfaces.
+    for each_bus in range(te.buses):
+        for each_output in range(te.outputs(each_bus)):
+            te.drivers(bus=each_bus,idx=each_output,wr_rd="rd").allow = CoinTossAllow
+
+    # Welp, the following is just a copy and paste of test_basic.
+    for each_write in range(writes):
+        for each_bus in range(te.buses):
+            for each_source in range(te.inputs(each_bus)):
+                source = te.sources(bus=each_bus,idx=each_source)
+                source.write(data=Transaction(addr=rword(),data=rword()))   
+                
+    # This wait needs to be long enough to ensure all the data has 
+    # passed through the crossbar.
+    yield Timer(16,"us")
+
+    # Initiate the comparison with the scoreboard. Comparisons are
+    # completed with sets since currently the reading interfaces have
+    # no way on knowing where their data came from.
+    for each_bus in range(te.buses):
+        for each_set in range(te.outputs(each_bus)):
+            te.gathers(bus=each_bus,idx=each_set,exp_act="exp").perform()
+            te.gathers(bus=each_bus,idx=each_set,exp_act="act").perform()
+
+
+################################################################
+#              UTILITY FUNCTIONS AND CLASESSES                ##
+# In the next test case, these are going to be split up       ##
+################################################################            
+
 def BinaryToInt(trans):
     '''
     Converts a transaction of 
@@ -135,6 +228,7 @@ def perform_setup(dut):
     sizes_dict   = {}
     gat_blk_dict = {}
     src_blk_dict = {}
+    drv_blk_dict = {}
     rst_sig_dict = {}
     rst_prm_dict = {}
     clk_sig_dict = {}
@@ -187,6 +281,9 @@ def perform_setup(dut):
                               addr=addr_sig)
             drv = HandshakeWriteDriver(interface=inter) if intr=="wr" else HandshakeReadDriver(interface=inter)
             mon = HandshakeMonitor(interface=inter)
+
+            # Store the drivers in order to allow for changes to flow control.
+            drv_blk_dict[(each_dut,idx,intr)] = drv
 
             # Create name identifiers for clocks and resets.
             rst_nme = "dut{}{}rst{}".format(each_dut,intr,idx)
@@ -255,6 +352,7 @@ def perform_setup(dut):
     # Create testbench environment namespace.
     te = Namespace(sources   = lambda bus, idx : src_blk_dict[(bus,idx)],
                    gathers   = lambda bus, idx, exp_act : gat_blk_dict[(bus,idx,exp_act)],
+                   drivers   = lambda bus, idx, wr_rd : drv_blk_dict[(bus,idx,wr_rd)],
                    buses     = TDUTS,
                    inputs    = lambda bus : sizes_dict[(bus,"wr")],
                    outputs   = lambda bus : sizes_dict[(bus,"rd")])
@@ -262,28 +360,6 @@ def perform_setup(dut):
     raise ReturnValue(te)
 
 
-@test(skip=False)
-def test_basic(dut):
-    '''
-    Simply write random values into the synchronous fifos.
-    '''
 
-    te = yield perform_setup(dut)
 
-    rword  = lambda : randint(0,(1<<32)-1)
-    writes = 30
-
-    for each_write in range(writes):
-        for each_bus in range(te.buses):
-            for each_source in range(te.inputs(each_bus)):
-                source = te.sources(bus=each_bus,idx=each_source)
-                source.write(data=Transaction(addr=rword(),data=rword()))
-
-    yield Timer(4000,"ns")
-
-    for each_bus in range(te.buses):
-        for each_set in range(te.outputs(each_bus)):
-            te.gathers(bus=each_bus,idx=each_set,exp_act="exp").perform()
-            te.gathers(bus=each_bus,idx=each_set,exp_act="act").perform()
-
-    pass 
+     
