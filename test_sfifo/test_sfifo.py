@@ -90,7 +90,7 @@ class CountBlock(SwissBlock):
     '''
 
     def __init__(self, total, inputs):
-        SwissBlock.__init__(self=self, trans_func=self._count_func, inputs=inputs)
+        SwissBlock.__init__(self, trans_func=self._count_func, inputs=inputs)
         self.__total = total
         self.__count = 0
 
