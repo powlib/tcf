@@ -45,6 +45,10 @@ module test_ipram();
   wire      [0:0]             wrvldscc [0:B_WRS-1];
   wire      [0:0]             wrrdyscc [0:B_WRS-1];  
   
+  wire      [B_DW-1:0]        wrdatascc [0:B_WRS-1];
+  wire      [B_BEW-1:0]       wrbescc   [0:B_WRS-1];
+  wire      [B_OPW-1:0]       wropscc   [0:B_WRS-1];
+  
   wire      [B_WRS-1:0]       wrclks;
   wire      [B_WRS-1:0]       wrrsts;
   wire      [B_WW-1:0]        wrdatas [0:B_WRS-1];
@@ -54,6 +58,10 @@ module test_ipram();
   
   wire      [0:0]             rdvldscc [0:B_RDS-1];
   wire      [0:0]             rdrdyscc [0:B_RDS-1];    
+  
+  wire      [B_DW-1:0]        rddatascc [0:B_RDS-1];
+  wire      [B_BEW-1:0]       rdbescc   [0:B_RDS-1];
+  wire      [B_OPW-1:0]       rdopscc   [0:B_RDS-1];  
       
   wire      [B_RDS-1:0]       rdclks;
   wire      [B_RDS-1:0]       rdrsts;
@@ -78,27 +86,30 @@ module test_ipram();
     assign wrclks[i]                = clk;
     assign wrrsts[i]                = rst;
     assign wrvlds[i]                = wrvldscc[i][0];
-    assign wrrdyscc[i][0]           = wrrdys[i];
+    assign wrrdyscc[i][0]           = wrrdys[i];  
+    assign datas_s0_0[i*B_WW+:B_WW] = wrdatas[i];
+    assign addrs_s0_0[i*B_AW+:B_AW] = wraddrs[i];
+    assign vlds_s0_0[i]             = wrvlds[i];
+    assign wrrdys[i]                = rdys_s0_0[i];
+    
+    powlib_ippackintr0 #(.B_BPD(B_BPD)) pack_inst (
+      .rddata(wrdatas[i]),
+      .wrdata(wrdatascc[i]),.wrbe(wrbescc[i]),.wrop(wropscc[i]));
   end
+
   for (j=0; j<B_RDS; j=j+1) begin
     assign rdclks[j]                = clk;
     assign rdrsts[j]                = rst;
     assign rdvldscc[j][0]           = rdvlds[j];
     assign rdrdys[j]                = rdrdyscc[j][0];   
-  end
-
-  for (i=0; i<B_WRS; i=i+1) begin
-    assign datas_s0_0[i*B_WW+:B_WW] = wrdatas[i];
-    assign addrs_s0_0[i*B_AW+:B_AW] = wraddrs[i];
-    assign vlds_s0_0[i]             = wrvlds[i];
-    assign wrrdys[i]                = rdys_s0_0[i];
-  end
-
-  for (j=0; j<B_RDS; j=j+1) begin
     assign rddatas[j]               = datas_s1_0[j*B_WW+:B_WW];
     assign rdaddrs[j]               = addrs_s1_0[j*B_AW+:B_AW];
     assign rdvlds[j]                = vlds_s1_0[j];
     assign rdys_s1_0[j]             = rdrdys[j];
+    
+    powlib_ipunpackintr0 #(.B_BPD(B_BPD)) unpack_inst (  
+      .wrdata(rddatas[j]),
+      .rddata(rddatascc[j]),.rdbe(rdbescc[j]),.rdop(rdopscc[j])); 
   end
 
   powlib_ipram #(
