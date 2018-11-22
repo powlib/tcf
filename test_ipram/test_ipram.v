@@ -13,8 +13,6 @@ module test_ipram();
 
   parameter                       ID          = "BUSCROSS";
   parameter                       EAR         = 1;
-  parameter                       D           = 8;
-  parameter                       S           = 0;
   parameter                       EDBG        = 0;
   parameter                       B_BPD       = 2;
   localparam                      B_AW        = `POWLIB_BW*B_BPD;
@@ -29,15 +27,14 @@ module test_ipram();
   parameter                       B_ITRS      = 3;
   parameter                       B_WRS       = B_ITRS;
   parameter                       B_RDS       = B_ITRS;
-  parameter [B_RDS*B_AW-1:0]      B_BASES     = {16'h0000,16'h5555,16'hAAA9};
-  parameter [B_RDS*B_AW-1:0]      B_SIZES     = {16'h5554,16'h5554,16'h5555};
-  parameter [B_WRS*B_RDS-1:0]     B_EASYNCS   = {3'b000,3'b000,3'b000,3'b000};
-  parameter                       B_D         = 8;
-  parameter                       B_DD        = 4;
-  parameter                       B_S         = 0;
-  parameter                       IN_D        = 8;
-  parameter                       IN_S        = 0;
-  parameter                       IPRAM_IDX   = 1;
+  parameter [B_RDS*B_AW-1:0]      B_BASES     = {16'h0000,16'h5000,16'hB000};
+  parameter [B_RDS*B_AW-1:0]      B_SIZES     = {16'h4FFF,16'h5FFF,16'h4FFF};
+  parameter [B_WRS*B_RDS-1:0]     B_EASYNCS   = {3'b000,
+                                                 3'b000,
+                                                 3'b000};
+  parameter                       IPRAM_IDX   = 1; // IP RAM interface index
+  parameter                       SIMRAM_IDX  = 2; // Simulated RAM interface index
+  parameter                       CC_IDX      = 0; // Simulation bus interface index
   
   wire                        clk;
   wire                        rst;
@@ -61,7 +58,8 @@ module test_ipram();
   
   wire      [B_DW-1:0]        rddatascc [0:B_RDS-1];
   wire      [B_BEW-1:0]       rdbescc   [0:B_RDS-1];
-  wire      [B_OPW-1:0]       rdopscc   [0:B_RDS-1];  
+  wire      [B_OPW-1:0]       rdopscc   [0:B_RDS-1];
+  wire      [B_AW-1:0]        rdbasescc [0:B_RDS-1];
       
   wire      [B_RDS-1:0]       rdclks;
   wire      [B_RDS-1:0]       rdrsts;
@@ -101,7 +99,8 @@ module test_ipram();
     assign rdclks[j]                = clk;
     assign rdrsts[j]                = rst;
     assign rdvldscc[j][0]           = rdvlds[j];
-    assign rdrdys[j]                = rdrdyscc[j][0];   
+    assign rdrdys[j]                = rdrdyscc[j][0];  
+    assign rdbasescc[j]             = B_BASES[j*B_AW+:B_AW];
     assign rddatas[j]               = datas_s1_0[j*B_WW+:B_WW];
     assign rdaddrs[j]               = addrs_s1_0[j*B_AW+:B_AW];
     assign rdvlds[j]                = vlds_s1_0[j];
@@ -113,20 +112,19 @@ module test_ipram();
   end
 
   powlib_ipram #(
-    .EAR(EAR),.EDBG(EDBG),.IN_D(IN_D),.IN_S(IN_S),
+    .EAR(EAR),.EDBG(EDBG),
     .B_BASE(B_BASES[IPRAM_IDX*B_AW+:B_AW]),
     .B_SIZE(B_SIZES[IPRAM_IDX*B_AW+:B_AW]),
     .B_BPD(B_BPD),.B_AW(B_AW)) 
   ram_inst (
-    .wraddr(wraddrs[IPRAM_IDX]),.wrdata(wrdatas[IPRAM_IDX]),.wrvld(wrvlds[IPRAM_IDX]),.wrrdy(wrrdys[IPRAM_IDX]),
-    .rdaddr(rdaddrs[IPRAM_IDX]),.rddata(rddatas[IPRAM_IDX]),.rdvld(rdvlds[IPRAM_IDX]),.rdrdy(rdrdys[IPRAM_IDX]),
+    .wraddr(rdaddrs[IPRAM_IDX]),.wrdata(rddatas[IPRAM_IDX]),.wrvld(rdvlds[IPRAM_IDX]),.wrrdy(rdrdys[IPRAM_IDX]),
+    .rdaddr(wraddrs[IPRAM_IDX]),.rddata(wrdatas[IPRAM_IDX]),.rdvld(wrvlds[IPRAM_IDX]),.rdrdy(wrrdys[IPRAM_IDX]),
     .clk(clk),.rst(rst));
   
   powlib_buscross #(
-    .NFS(0),.D(D),.S(S),.EAR(0),.EDBG(EDBG),
+    .EAR(EAR),.EDBG(EDBG),
     .B_WRS(B_WRS),.B_RDS(B_RDS),.B_AW(B_AW),.B_DW(B_WW),
-    .B_D(B_D),.B_S(B_S),.B_DD(B_DD),.B_EASYNCS(B_EASYNCS),
-    .B_BASES(B_BASES),.B_SIZES(B_SIZES))
+    .B_EASYNCS(B_EASYNCS),.B_BASES(B_BASES),.B_SIZES(B_SIZES))
   bus_inst (
     .wrclks(wrclks),.wrrsts(wrrsts),.rdclks(rdclks),.rdrsts(rdrsts),
     .wrdatas(datas_s0_0),.wraddrs(addrs_s0_0),.wrvlds(vlds_s0_0),.wrrdys(rdys_s0_0),.wrnfs(nfs_s0_0),
