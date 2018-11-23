@@ -60,6 +60,7 @@ module test_ipram();
   wire      [B_BEW-1:0]       rdbescc   [0:B_RDS-1];
   wire      [B_OPW-1:0]       rdopscc   [0:B_RDS-1];
   wire      [B_AW-1:0]        rdbasescc [0:B_RDS-1];
+  wire      [B_AW-1:0]        rdsizescc [0:B_RDS-1];
       
   wire      [B_RDS-1:0]       rdclks;
   wire      [B_RDS-1:0]       rdrsts;
@@ -101,6 +102,7 @@ module test_ipram();
     assign rdvldscc[j][0]           = rdvlds[j];
     assign rdrdys[j]                = rdrdyscc[j][0];  
     assign rdbasescc[j]             = B_BASES[j*B_AW+:B_AW];
+    assign rdsizescc[j]             = B_SIZES[j*B_AW+:B_AW];
     assign rddatas[j]               = datas_s1_0[j*B_WW+:B_WW];
     assign rdaddrs[j]               = addrs_s1_0[j*B_AW+:B_AW];
     assign rdvlds[j]                = vlds_s1_0[j];
