@@ -27,8 +27,8 @@ module test_ipram();
   parameter                       B_ITRS      = 3;
   parameter                       B_WRS       = B_ITRS;
   parameter                       B_RDS       = B_ITRS;
-  parameter [B_RDS*B_AW-1:0]      B_BASES     = {16'h0000,16'h5000,16'hB000};
-  parameter [B_RDS*B_AW-1:0]      B_SIZES     = {16'h4FFF,16'h5FFF,16'h4FFF};
+  parameter [B_RDS*B_AW-1:0]      B_BASES     = {16'h0000,16'h1000,16'h2000};
+  parameter [B_RDS*B_AW-1:0]      B_SIZES     = {16'h0FFF,16'h0FFF,16'h0FFF};
   parameter [B_WRS*B_RDS-1:0]     B_EASYNCS   = {3'b000,
                                                  3'b000,
                                                  3'b000};

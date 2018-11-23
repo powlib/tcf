@@ -26,6 +26,16 @@ def test_basic(dut):
     te.ccbus.write(addr=0x0004,data=0xDEAD,be=0x2)
     trans = yield te.ccbus.read(addr=0x0004)
     te.log.info("Received data: {}".format(trans))
+    
+    yield Timer(100, "ns")
+    
+    te.ccbus.write(addr=0x1000,data=0xFEAF)
+    te.ccbus.write(addr=0x1002,data=0x77AF,be=0x1)
+    te.ccbus.write(addr=0x1004,data=0xFE77,be=0x2)
+    trans = yield te.ccbus.read(addr=0x1000)
+    transList = yield te.ccbus.read(addr=[0x1000, 0x1002, 0x1004])
+    te.log.info("Received data: {}".format(trans))
+    for each_trans in transList: te.log.info("{:x}".format(int(each_trans.data)))
     yield Timer(100, "ns")
     
 class TestEnvironment(object):
