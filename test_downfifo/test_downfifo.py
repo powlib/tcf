@@ -4,6 +4,7 @@ from cocotb.decorators                   import test, coroutine
 from cocotb.triggers                     import Timer
 from cocotb.binary                       import BinaryValue
 
+from powlib.verify.block                 import Block, InPort, OutPort
 from powlib.verify.agents.SystemAgent    import ClockDriver, ResetDriver
 from powlib.verify.agents.HandshakeAgent import HandshakeInterface, HandshakeWriteDriver, \
                                                 HandshakeReadDriver, HandshakeMonitor, \
@@ -13,12 +14,13 @@ from powlib.verify.blocks                import SwissBlock, ScoreBlock, AssertBl
 from powlib                              import Interface, Transaction, Namespace
 
 from random                              import randint
+from itertools                           import product
 
     
 @test(skip=False)
 def test_basic(dut):
     '''
-    A simple test that simulates the upfifos.
+    A simple test that simulates the downfifos.
     '''
     
     TOTAL_WORDS   = 1024
@@ -29,13 +31,14 @@ def test_basic(dut):
     yield te.start()
     
     # Write the words
-    for each_word in range(TOTAL_WORDS):
-        te.write(BinaryValue(value=randint(0,(1<<te.W)-1),bits=te.W,bigEndian=False))        
+    for eachWord, eachDut in product(range(TOTAL_WORDS), range(te.DUT_TOTAL)):
+        te.write(eachDut, BinaryValue(value=randint(0,(1<<te.WR_W(eachDut))-1),
+                                      bits=te.WR_W(eachDut),bigEndian=False))        
     
     # Wait until simulation finishes.
     yield Timer(TOTAL_TIME_NS, "ns")
     
-@test(skip=False)
+@test(skip=True)
 def test_backpressure(dut):
     '''
     Perform a backpressure test.
@@ -61,26 +64,29 @@ def test_backpressure(dut):
     yield Timer(TOTAL_TIME_NS//2, "ns")
     
 
-class UpFifoModel(SwissBlock):
+class DownFifoModel(Block):
     '''
     Models the behavior of the powlib_upfifo.
     '''
     
     def __init__(self, width, mult):
-        SwissBlock.__init__(self, trans_func=self._up_func, inputs=1)
-        self.__width = width
-        self.__mult  = mult
-        self.__buff  = []        
+        self.__width   = width
+        self.__mult    = mult
+        self.__inport  = InPort(block=self)
+        self.__outport = OutPort(block=self)
+        
+    inport  = property(lambda self : self.__inport)
+    outport = property(lambda self : self.__outport)
     
-    def _up_func(self, trans):
-        self.__buff.append(trans.data)
-        if len(self.__buff)==self.__mult:
-            mask = (1<<self.__width)-1
-            res  = 0
-            for each, data in enumerate(self.__buff):
-                res |= (int(data)&mask)<<(self.__width*each)
-            self.__buff = []
-            return Transaction(data=BinaryValue(value=res,bits=(self.__width*self.__mult),bigEndian=False))        
+    def _behavior(self):
+        if self.__inport.ready():
+            trans  = self.__inport.read()            
+            wrdata = int(trans.data)
+            for each in range(self.__mult):
+                mask  = (1<<self.__width)-1
+                shift = each*self.__width
+                rdata = (wrdata&(mask<<shift))>>shift
+                self.__outport.write(Transaction(data=BinaryValue(value=rdata,bits=self.__width,bigEndian=False)))
     
 class TestEnvironment(object):
     '''
@@ -94,16 +100,17 @@ class TestEnvironment(object):
         '''
         
         # Create the agents and models.
-        DUT_TOTAL = int(dut.DUT_TOTAL.value) 
-        wrdrvs    = []
-        rddrvs    = []
-        rdmons    = []
-        modelblks = []
-        scoreblks = []
-        clkintrs  = {}
-        clkparams = {}
-        rstintrs  = {}
-        rstparams = {}
+        DUT_TOTAL  = int(dut.DUT_TOTAL.value) 
+        wrdrvs     = []
+        rddrvs     = []
+        rdmons     = []
+        sourceblks = []
+        modelblks  = []
+        scoreblks  = []
+        clkintrs   = {}
+        clkparams  = {}
+        rstintrs   = {}
+        rstparams  = {}
         for eachDut in range(DUT_TOTAL):                   
             
             # Acquire useful values.
@@ -144,10 +151,12 @@ class TestEnvironment(object):
             rdmon = HandshakeMonitor(interface=rddrv._interface)
     
             # Create the blocks.
-            modelblk = UpFifoModel(width=W,mult=MULT)
-            scoreblk = ScoreBlock(name="score.dut{}".format(eachDut))            
+            sourceblk = SourceBlock()
+            modelblk  = DownFifoModel(width=W,mult=MULT)
+            scoreblk  = ScoreBlock(name="score.dut{}".format(eachDut))            
     
             # Store blocks.
+            sourceblks.append(sourceblk)
             wrdrvs.append(wrdrv)
             rddrvs.append(rddrv)
             rdmons.append(rdmon)
@@ -160,29 +169,30 @@ class TestEnvironment(object):
         rstdrv = ResetDriver(interface=Interface(**rstintrs),
                              param_namespace=Namespace(**rstparams))       
         
-        # Create the blocks.        
-        sourceblk = SourceBlock()
+        # Create the blocks.               
         assertblk = AssertBlock(inputs=DUT_TOTAL)
         
         # Perform the connections.
-        for eachDut, (wrdrv, modelblk, rdmon, scoreblk) in enumerate(zip(wrdrvs, modelblks, rdmons, scoreblks)): 
+        for eachDut, (sourceblk, wrdrv, modelblk, rdmon, scoreblk) in \
+        enumerate(zip(sourceblks, wrdrvs, modelblks, rdmons, scoreblks)):             
             sourceblk.outport.connect(wrdrv.inport)
             sourceblk.outport.connect(modelblk.inport)
             rdmon.outport.connect(scoreblk.inports(0))
             modelblk.outport.connect(scoreblk.inports(1))
             scoreblk.outport.connect(assertblk.inports(eachDut))
         
-        self.__dut       = dut
-        self.__rstdrv    = rstdrv
-        self.__wrdrvs    = wrdrvs
-        self.__rddrvs    = rddrvs
-        self.__sourceblk = sourceblk
-        self.__log       = SimLog("cocotb.te")
+        self.__dut        = dut
+        self.__rstdrv     = rstdrv
+        self.__wrdrvs     = wrdrvs
+        self.__rddrvs     = rddrvs
+        self.__sourceblks = sourceblks
+        self.__log        = SimLog("cocotb.te")
             
     log        = property(lambda self : self.__log)
     DUT_TOTAL  = property(lambda self : int(self.__dut.DUT_TOTAL.value))
     W          = property(lambda self : int(self.__dut.W.value))
-    write      = lambda self, data  : self.__sourceblk.write(data=Transaction(data=data))
+    WR_W       = lambda self, dutIdx : int(getattr(self.__dut, "dut{}".format(dutIdx)).WR_W.value)
+    write      = lambda self, dutIdx, data  : self.__sourceblks[dutIdx].write(data=Transaction(data=data))
     setWrAllow = lambda self, allow : [setattr(drv, "allow", allow) for drv in self.__wrdrvs] 
     setRdAllow = lambda self, allow : [setattr(drv, "allow", allow) for drv in self.__rddrvs] 
 
