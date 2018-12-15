@@ -9,15 +9,14 @@ from powlib.verify.agents.SystemAgent    import ClockDriver, ResetDriver
 from powlib.verify.agents.HandshakeAgent import HandshakeInterface, HandshakeWriteDriver, \
                                                 HandshakeReadDriver, HandshakeMonitor, \
                                                 AlwaysAllow, NeverAllow
-from powlib.verify.blocks                import SwissBlock, ScoreBlock, AssertBlock, \
-                                                SourceBlock
+from powlib.verify.blocks                import ScoreBlock, AssertBlock, SourceBlock
 from powlib                              import Interface, Transaction, Namespace
 
 from random                              import randint
 from itertools                           import product
 
     
-@test(skip=False)
+@test(skip=True)
 def test_basic(dut):
     '''
     A simple test that simulates the downfifos.
@@ -38,7 +37,7 @@ def test_basic(dut):
     # Wait until simulation finishes.
     yield Timer(TOTAL_TIME_NS, "ns")
     
-@test(skip=True)
+@test(skip=False)
 def test_backpressure(dut):
     '''
     Perform a backpressure test.
@@ -53,8 +52,9 @@ def test_backpressure(dut):
     yield te.start()    
     
     # Write the words
-    for each_word in range(TOTAL_WORDS):
-        te.write(BinaryValue(value=randint(0,(1<<te.W)-1),bits=te.W,bigEndian=False))    
+    for eachWord, eachDut in product(range(TOTAL_WORDS), range(te.DUT_TOTAL)):
+        te.write(eachDut, BinaryValue(value=randint(0,(1<<te.WR_W(eachDut))-1),
+                                      bits=te.WR_W(eachDut),bigEndian=False))    
         
     
     # Wait some time before enabling read interfaces.
@@ -66,7 +66,7 @@ def test_backpressure(dut):
 
 class DownFifoModel(Block):
     '''
-    Models the behavior of the powlib_upfifo.
+    Models the behavior of the powlib_downfifo.
     '''
     
     def __init__(self, width, mult):
@@ -116,10 +116,11 @@ class TestEnvironment(object):
             # Acquire useful values.
             specificDut = getattr(dut, "dut{}".format(eachDut))
             EASYNC      = int(specificDut.EASYNC.value)
-            wrPeriod    = (randint(3,10),"ns")
-            rdPeriod    = wrPeriod if EASYNC==0 else (randint(3,10),"ns")
-            W           = int(specificDut.W.value)
             MULT        = int(specificDut.MULT.value)
+            rdPeriod    = (randint(3,10),"ns")
+            wrPeriod    = rdPeriod if EASYNC==0 else (rdPeriod[0]*MULT,"ns")
+            W           = int(specificDut.W.value)
+            
             
             # Collect system parameters.
             clkintrs["wrclk{}".format(eachDut)]  = specificDut.wrclk
@@ -134,7 +135,7 @@ class TestEnvironment(object):
             rstparams["rdrst{}".format(eachDut)] = Namespace(active_mode=1,
                                                              associated_clock=specificDut.rdclk,
                                                              wait_cycles=32)            
-                        
+            
             # Create the agents.    
             wrdrv = HandshakeWriteDriver(interface=HandshakeInterface(data=specificDut.wrdata,
                                                                       vld=specificDut.wrvld,
