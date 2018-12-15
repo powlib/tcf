@@ -10,7 +10,7 @@ module test_downfifo();
   end  
 
   parameter                  EAR       = 0;          // Enable asynchronous reset  
-  parameter                  ID        = "DOWNFIFO";   // String identifier
+  parameter                  ID        = "DOWNFIFO"; // String identifier
   parameter                  EDBG      = 0;          // Enable debug  
   parameter                  W         = 16;         // Just going to make all the widths the same.
   parameter                  DUT_TOTAL = 3;

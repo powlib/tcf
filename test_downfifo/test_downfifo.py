@@ -16,7 +16,7 @@ from random                              import randint
 from itertools                           import product
 
     
-@test(skip=True)
+@test(skip=False)
 def test_basic(dut):
     '''
     A simple test that simulates the downfifos.
