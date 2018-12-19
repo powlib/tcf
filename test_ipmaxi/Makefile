@@ -18,7 +18,7 @@ PYTHONPATH := $(POWLIB)/sim:$(PYTHONPATH)
 endif
 
 ifeq ($(TOPLEVEL_LANG),verilog)
-    VERILOG_SOURCES = $(POWLIB)/hdl/*.v $(PWD)/test_ipmaxi.v
+    VERILOG_SOURCES = $(POWLIB)/hdl/*.v $(PWD)/*.v
     COMPILE_ARGS = -g 2001 -I $(POWLIB)/hdl/     
     TOPLEVEL = test_ipmaxi
 else
