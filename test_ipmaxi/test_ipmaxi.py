@@ -15,192 +15,86 @@ from powlib                              import Interface, Transaction, Namespac
 from random                              import randint
 from itertools                           import product
 
+BRAM0_ADDR = 0xC0000000
+BRAM1_ADDR = 0xC2000000
+BYTE_WIDTH = 8
     
-@test(skip=True)
-def test_basic(dut):
+@test(skip=False)
+def test_wronly(dut):
     '''
-    A simple test that simulates the downfifos.
     '''
     
-    TOTAL_WORDS   = 1024
-    TOTAL_TIME_NS = TOTAL_WORDS*10
-    
-    # Create and start the test environment as normal.
     te = TestEnvironment(dut)
     yield te.start()
+    yield Timer(50,"ns")
     
-    # Write the words
-    for eachWord, eachDut in product(range(TOTAL_WORDS), range(te.DUT_TOTAL)):
-        te.write(eachDut, BinaryValue(value=randint(0,(1<<te.WR_W(eachDut))-1),
-                                      bits=te.WR_W(eachDut),bigEndian=False))        
+    BPD = te.ipmaxiWrInstBPD
+    BEM = (1<<BPD)-1
     
-    # Wait until simulation finishes.
-    yield Timer(TOTAL_TIME_NS, "ns")
-    
-@test(skip=True)
-def test_backpressure(dut):
-    '''
-    Perform a backpressure test.
-    '''
-    
-    TOTAL_WORDS   = 1024
-    TOTAL_TIME_NS = TOTAL_WORDS*40     
-    
-    # Create and start the test environment, however configure the read interfaces
-    # such that back pressure occurs.
-    te = TestEnvironment(dut,wrStartAllow=AlwaysAllow,rdStartAllow=NeverAllow)        
-    yield te.start()    
-    
-    # Write the words
-    for eachWord, eachDut in product(range(TOTAL_WORDS), range(te.DUT_TOTAL)):
-        te.write(eachDut, BinaryValue(value=randint(0,(1<<te.WR_W(eachDut))-1),
-                                      bits=te.WR_W(eachDut),bigEndian=False))    
+    # Write a bunch of words.
+    WORD_TOTAL = 16
+    for eachWord in range(WORD_TOTAL):
+        te.ipmaxiWrInstWrite(addr=BRAM0_ADDR+eachWord*BPD,
+                             data=randint(0, (1<<(BPD*BYTE_WIDTH))-1),
+                             be=BEM)
         
+    yield Timer(1600, "ns")
     
-    # Wait some time before enabling read interfaces.
-    yield Timer(TOTAL_TIME_NS//2, "ns")
+    pass
     
-    te.setRdAllow(AlwaysAllow)
-    yield Timer(TOTAL_TIME_NS//2, "ns")
     
 
-class DownFifoModel(Block):
-    '''
-    Models the behavior of the powlib_downfifo.
-    '''
-    
-    def __init__(self, width, mult):
-        self.__width   = width
-        self.__mult    = mult
-        self.__inport  = InPort(block=self)
-        self.__outport = OutPort(block=self)
-        
-    inport  = property(lambda self : self.__inport)
-    outport = property(lambda self : self.__outport)
-    
-    def _behavior(self):
-        if self.__inport.ready():
-            trans  = self.__inport.read()            
-            wrdata = int(trans.data)
-            for each in range(self.__mult):
-                mask  = (1<<self.__width)-1
-                shift = each*self.__width
-                rdata = (wrdata&(mask<<shift))>>shift
-                self.__outport.write(Transaction(data=BinaryValue(value=rdata,bits=self.__width,bigEndian=False)))
-    
 class TestEnvironment(object):
     '''
     Defines the test environment. 
     '''
     
-    def __init__(self, dut, wrStartAllow=AlwaysAllow, rdStartAllow=AlwaysAllow):
+    def __init__(self, dut):
         '''
         Constructor. dut is the device-under-test that consists of all the cocotb
         SimHandles.
         '''
         
-        # Create the agents and models.
-        DUT_TOTAL  = int(dut.DUT_TOTAL.value) 
-        wrdrvs     = []
-        rddrvs     = []
-        rdmons     = []
-        sourceblks = []
-        modelblks  = []
-        scoreblks  = []
-        clkintrs   = {}
-        clkparams  = {}
-        rstintrs   = {}
-        rstparams  = {}
-        for eachDut in range(DUT_TOTAL):                   
-            
-            # Acquire useful values.
-            specificDut = getattr(dut, "dut{}".format(eachDut))
-            EASYNC      = int(specificDut.EASYNC.value)
-            MULT        = int(specificDut.MULT.value)
-            rdPeriod    = (randint(3,10),"ns")
-            wrPeriod    = rdPeriod if EASYNC==0 else (rdPeriod[0]*MULT,"ns")
-            W           = int(specificDut.W.value)
-            
-            
-            # Collect system parameters.
-            clkintrs["wrclk{}".format(eachDut)]  = specificDut.wrclk
-            clkintrs["rdclk{}".format(eachDut)]  = specificDut.rdclk
-            clkparams["wrclk{}".format(eachDut)] = Namespace(period=wrPeriod)
-            clkparams["rdclk{}".format(eachDut)] = Namespace(period=rdPeriod)
-            rstintrs["wrrst{}".format(eachDut)]  = specificDut.wrrst
-            rstintrs["rdrst{}".format(eachDut)]  = specificDut.rdrst
-            rstparams["wrrst{}".format(eachDut)] = Namespace(active_mode=1,
-                                                             associated_clock=specificDut.wrclk,
-                                                             wait_cycles=32)
-            rstparams["rdrst{}".format(eachDut)] = Namespace(active_mode=1,
-                                                             associated_clock=specificDut.rdclk,
-                                                             wait_cycles=32)            
-            
-            # Create the agents.    
-            wrdrv = HandshakeWriteDriver(interface=HandshakeInterface(data=specificDut.wrdata,
-                                                                      vld=specificDut.wrvld,
-                                                                      rdy=specificDut.wrrdy,
-                                                                      clk=specificDut.wrclk,
-                                                                      rst=specificDut.wrrst),
-                                         allow=wrStartAllow)
-            rddrv = HandshakeReadDriver(interface=HandshakeInterface(data=specificDut.rddata,
-                                                                      vld=specificDut.rdvld,
-                                                                      rdy=specificDut.rdrdy,
-                                                                      clk=specificDut.rdclk,
-                                                                      rst=specificDut.rdrst),
-                                        allow=rdStartAllow)
-            rdmon = HandshakeMonitor(interface=rddrv._interface)
-    
-            # Create the blocks.
-            sourceblk = SourceBlock()
-            modelblk  = DownFifoModel(width=W,mult=MULT)
-            scoreblk  = ScoreBlock(name="score.dut{}".format(eachDut))            
-    
-            # Store blocks.
-            sourceblks.append(sourceblk)
-            wrdrvs.append(wrdrv)
-            rddrvs.append(rddrv)
-            rdmons.append(rdmon)
-            scoreblks.append(scoreblk)
-            modelblks.append(modelblk)
+        self.__rstDrvs = []
         
-        # Create the system agents.
-        clkdrv = ClockDriver(interface=Interface(**clkintrs),
-                             param_namespace=Namespace(**clkparams))
-        rstdrv = ResetDriver(interface=Interface(**rstintrs),
-                             param_namespace=Namespace(**rstparams))       
+        #---------------------------------------------------------------------#
+        # Configure ipmaxi_wr_inst
         
-        # Create the blocks.               
-        assertblk = AssertBlock(inputs=DUT_TOTAL)
+        ipmaxiWrInst = dut.ipmaxi_wr_inst
         
-        # Perform the connections.
-        for eachDut, (sourceblk, wrdrv, modelblk, rdmon, scoreblk) in \
-        enumerate(zip(sourceblks, wrdrvs, modelblks, rdmons, scoreblks)):             
-            sourceblk.outport.connect(wrdrv.inport)
-            sourceblk.outport.connect(modelblk.inport)
-            rdmon.outport.connect(scoreblk.inports(0))
-            modelblk.outport.connect(scoreblk.inports(1))
-            scoreblk.outport.connect(assertblk.inports(eachDut))
+        ClockDriver(interface=Interface(clk=ipmaxiWrInst.clk),
+                    param_namespace=Namespace(clk=Namespace(period=(10,"ns"))),
+                    name="ipmaxiWr")
+        rstDrv = ResetDriver(interface=Interface(rst=ipmaxiWrInst.rst),
+                             param_namespace=Namespace(active_mode=1,
+                                                       associated_clock=ipmaxiWrInst.clk,
+                                                       wait_cycles=32))
+        self.__rstDrvs.append(rstDrv)
         
-        self.__dut        = dut
-        self.__rstdrv     = rstdrv
-        self.__wrdrvs     = wrdrvs
-        self.__rddrvs     = rddrvs
-        self.__sourceblks = sourceblks
-        self.__log        = SimLog("cocotb.te")
-            
-    log        = property(lambda self : self.__log)
-    DUT_TOTAL  = property(lambda self : int(self.__dut.DUT_TOTAL.value))
-    W          = property(lambda self : int(self.__dut.W.value))
-    WR_W       = lambda self, dutIdx : int(getattr(self.__dut, "dut{}".format(dutIdx)).WR_W.value)
-    write      = lambda self, dutIdx, data  : self.__sourceblks[dutIdx].write(data=Transaction(data=data))
-    setWrAllow = lambda self, allow : [setattr(drv, "allow", allow) for drv in self.__wrdrvs] 
-    setRdAllow = lambda self, allow : [setattr(drv, "allow", allow) for drv in self.__rddrvs] 
-
+        wrDrv = HandshakeWriteDriver(interface=HandshakeInterface(addr=ipmaxiWrInst.wraddr,
+                                                                  data=ipmaxiWrInst.wrdata,
+                                                                  be=ipmaxiWrInst.wrbe,
+                                                                  vld=ipmaxiWrInst.wrvld,
+                                                                  rdy=ipmaxiWrInst.wrrdy,
+                                                                  clk=ipmaxiWrInst.clk,
+                                                                  rst=ipmaxiWrInst.rst))
+        HandshakeReadDriver(interface=HandshakeInterface(resp=ipmaxiWrInst.bresp,
+                                                         vld=ipmaxiWrInst.bvalid,
+                                                         rdy=ipmaxiWrInst.bready,
+                                                         clk=ipmaxiWrInst.clk,
+                                                         rst=ipmaxiWrInst.rst))
+        
+        self.__ipmaxiWrInstWrDrv = wrDrv
+        self.__dut = dut
+        
+    ipmaxiWrInstWrite = lambda self, addr, data, be : self.__ipmaxiWrInstWrDrv.write(Transaction(addr=addr,data=data,be=be))
+    ipmaxiWrInstBPD   = property(lambda self : int(self.__dut.ipmaxi_wr_inst.B_BPD.value))
+        
     @coroutine
     def start(self):
         '''
-        Starts the test by causing the test to delay until the resets are inactive.
-        '''        
-        yield self.__rstdrv.wait() 
+        Waits until all resets are out of reset.
+        '''
+        for rstDrv in self.__rstDrvs:
+            yield rstDrv.wait()
      

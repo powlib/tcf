@@ -27,6 +27,7 @@ module test_ipmaxi_wr();
   localparam                   B_DW         = `POWLIB_BW*B_BPD;  
   wire                         clk, rst;
   wire       [B_AW-1:0]        wraddr;
+  wire       [B_DW-1:0]        wrdata;
   wire       [B_BPD-1:0]       wrbe;
   wire                         wrvld, wrrdy, wrnf;
   wire       [B_AW-1:0]        awaddr;
@@ -37,10 +38,12 @@ module test_ipmaxi_wr();
   wire       [B_DW-1:0]        wdata;
   wire       [B_BPD-1:0]       wstrb;
   wire                         wlast, wvalid, wready;  
+  wire       [`AXI_RESPW-1:0]  bresp;
+  wire                         bvalid, bready;
 
-  powlib_ipmaxi_wr #(.MAX_BURST(MAX_BURST),.ID(ID),.EAR(EAR),.EDBG(EDBG),.B_BPD(B_BPD)) 
+  powlib_ipmaxi_wr #(.MAX_BURST(MAX_BURST),.ID(ID),.EAR(EAR),.EDBG(EDBG),.B_BPD(B_BPD),.B_AW(B_AW)) 
   ipmaxi_wr_inst(
-    .clk(clk),.rst(rst),.wraddr(wraddr),.wrbe(wrbe),.wrvld(wrvld),.wrrdy(wrrdy),.wrnf(wrnf),
+    .clk(clk),.rst(rst),.wraddr(wraddr),.wrdata(wrdata),.wrbe(wrbe),.wrvld(wrvld),.wrrdy(wrrdy),.wrnf(wrnf),
     .awaddr(awaddr),.awlen(awlen),.awsize(awsize),.awburst(awburst),.awvalid(awvalid),.awready(awready),
     .wdata(wdata),.wstrb(wstrb),.wlast(wlast),.wvalid(wvalid),.wready(wready));
 
