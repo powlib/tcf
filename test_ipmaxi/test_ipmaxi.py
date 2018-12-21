@@ -40,8 +40,36 @@ def test_wronly(dut):
         
     yield Timer(1600, "ns")
     
+    # Write a bunch of words.
+    WORD_TOTAL = 16
+    for eachWord in range(WORD_TOTAL):
+        te.ipmaxiWrInstWrite(addr=BRAM0_ADDR+eachWord*BPD+WORD_TOTAL*BPD,
+                             data=randint(0, (1<<(BPD*BYTE_WIDTH))-1),
+                             be=BEM)  
+        
+    yield Timer(1600, "ns")    
+
+    WORD_TOTAL = 8
+    for eachWord in range(WORD_TOTAL):
+        te.ipmaxiWrInstWrite(addr=BRAM0_ADDR+eachWord*BPD,
+                             data=randint(0, (1<<(BPD*BYTE_WIDTH))-1),
+                             be=BEM)  
+    for eachWord in range(WORD_TOTAL):
+        te.ipmaxiWrInstWrite(addr=BRAM0_ADDR+eachWord*BPD,
+                             data=randint(0, (1<<(BPD*BYTE_WIDTH))-1),
+                             be=BEM)   
+
+    yield Timer(1600, "ns")         
+    
     pass
     
+@test(skip=True)
+def test_rdwr(dut):
+    '''
+    '''
+    te = TestEnvironment(dut)
+    yield te.start() 
+    pass
     
 
 class TestEnvironment(object):
@@ -85,6 +113,45 @@ class TestEnvironment(object):
                                                          rst=ipmaxiWrInst.rst))
         
         self.__ipmaxiWrInstWrDrv = wrDrv
+        
+        #---------------------------------------------------------------------#
+        # Configure ipmaxi_rdwr_inst
+        
+        ipmaxiRdWrInst = dut.ipmaxi_rdwr_inst
+
+        ClockDriver(interface=Interface(clk=ipmaxiRdWrInst.clk),
+                    param_namespace=Namespace(clk=Namespace(period=(10,"ns"))),
+                    name="ipmaxiRdWr")
+        rstDrv = ResetDriver(interface=Interface(rst=ipmaxiRdWrInst.rst),
+                             param_namespace=Namespace(active_mode=1,
+                                                       associated_clock=ipmaxiRdWrInst.clk,
+                                                       wait_cycles=32))
+        self.__rstDrvs.append(rstDrv)        
+        
+        wrWrDrv = HandshakeWriteDriver(interface=HandshakeInterface(addr=ipmaxiRdWrInst.wr_wraddr,
+                                                                    data=ipmaxiRdWrInst.wr_wrdata,
+                                                                    be=ipmaxiRdWrInst.wr_wrbe,
+                                                                    vld=ipmaxiRdWrInst.wr_wrvld,
+                                                                    rdy=ipmaxiRdWrInst.wr_wrrdy,
+                                                                    clk=ipmaxiRdWrInst.clk,
+                                                                    rst=ipmaxiRdWrInst.rst))   
+        rdWrDrv = HandshakeWriteDriver(interface=HandshakeInterface(addr=ipmaxiRdWrInst.rd_wraddr,
+                                                                    data=ipmaxiRdWrInst.rd_wrdata,                                                                    
+                                                                    vld=ipmaxiRdWrInst.rd_wrvld,
+                                                                    rdy=ipmaxiRdWrInst.rd_wrrdy,
+                                                                    clk=ipmaxiRdWrInst.clk,
+                                                                    rst=ipmaxiRdWrInst.rst))
+        rdRdDrv = HandshakeReadDriver(interface=HandshakeInterface(addr=ipmaxiRdWrInst.rd_rdaddr,
+                                                                   data=ipmaxiRdWrInst.rd_rddata,
+                                                                   resp=ipmaxiRdWrInst.rd_rdresp,
+                                                                   vld=ipmaxiRdWrInst.rd_rdvld,
+                                                                   rdy=ipmaxiRdWrInst.rd_rdrdy,
+                                                                   clk=ipmaxiRdWrInst.clk,
+                                                                   rst=ipmaxiRdWrInst.rst))
+        rdRdMon = HandshakeMonitor(interface=rdRdDrv._interface)           
+
+        #---------------------------------------------------------------------#
+        # Other assignments                
         self.__dut = dut
         
     ipmaxiWrInstWrite = lambda self, addr, data, be : self.__ipmaxiWrInstWrDrv.write(Transaction(addr=addr,data=data,be=be))
