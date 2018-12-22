@@ -9,7 +9,7 @@ from powlib.verify.agents.SystemAgent    import ClockDriver, ResetDriver
 from powlib.verify.agents.HandshakeAgent import HandshakeInterface, HandshakeWriteDriver, \
                                                 HandshakeReadDriver, HandshakeMonitor, \
                                                 AlwaysAllow, NeverAllow
-from powlib.verify.blocks                import ScoreBlock, AssertBlock, SourceBlock
+from powlib.verify.blocks                import ScoreBlock, AssertBlock, SourceBlock, PrintBlock
 from powlib                              import Interface, Transaction, Namespace
 
 from random                              import randint
@@ -19,7 +19,7 @@ BRAM0_ADDR = 0xC0000000
 BRAM1_ADDR = 0xC2000000
 BYTE_WIDTH = 8
     
-@test(skip=False)
+@test(skip=True)
 def test_wronly(dut):
     '''
     '''
@@ -59,18 +59,45 @@ def test_wronly(dut):
                              data=randint(0, (1<<(BPD*BYTE_WIDTH))-1),
                              be=BEM)   
 
-    yield Timer(1600, "ns")         
+    yield Timer(1600, "ns")       
     
     pass
     
-@test(skip=True)
+@test(skip=False)
 def test_rdwr(dut):
     '''
     '''
     te = TestEnvironment(dut)
     yield te.start() 
-    pass
+    yield Timer(50,"ns")
     
+    BPD = te.ipmaxiRdWrInstBPD
+    BEM = (1<<BPD)-1    
+    
+    # Write a bunch of words.
+    WORD_TOTAL = 16
+    for eachWord in range(WORD_TOTAL):
+        te.ipmaxiRdWrInstWrite(addr=BRAM0_ADDR+eachWord*BPD,
+                               data=randint(0, (1<<(BPD*BYTE_WIDTH))-1),
+                               be=BEM)
+        
+    yield Timer(1600, "ns")
+    
+    # Read a bunch of words.
+    WORD_TOTAL = 16
+    for eachWord in range(WORD_TOTAL):
+        te.ipmaxiRdWrInstRead(addr=BRAM0_ADDR+eachWord*BPD,
+                              raddr=+eachWord*BPD)
+        
+    yield Timer(1600, "ns")
+    
+    # Read a bunch of words.
+    WORD_TOTAL = 64
+    for eachWord in range(WORD_TOTAL):
+        te.ipmaxiRdWrInstRead(addr=BRAM0_ADDR+eachWord*BPD,
+                              raddr=+eachWord*BPD)
+        
+    yield Timer(1600, "ns")    
 
 class TestEnvironment(object):
     '''
@@ -148,14 +175,27 @@ class TestEnvironment(object):
                                                                    rdy=ipmaxiRdWrInst.rd_rdrdy,
                                                                    clk=ipmaxiRdWrInst.clk,
                                                                    rst=ipmaxiRdWrInst.rst))
-        rdRdMon = HandshakeMonitor(interface=rdRdDrv._interface)           
+        HandshakeReadDriver(interface=HandshakeInterface(resp=ipmaxiRdWrInst.bresp,
+                                                         vld=ipmaxiRdWrInst.bvalid,
+                                                         rdy=ipmaxiRdWrInst.bready,
+                                                         clk=ipmaxiRdWrInst.clk,
+                                                         rst=ipmaxiRdWrInst.rst))                
+        rdRdMon = HandshakeMonitor(interface=rdRdDrv._interface)
+        rdPrBlk = PrintBlock(name="ipmaxiRdWrInstRead")        
+        rdRdMon.outport.connect(rdPrBlk.inport)
+
+        self.__ipmaxiRdWrInstWrWrDrv = wrWrDrv
+        self.__ipmaxiRdWrInstRdWrDrv = rdWrDrv
 
         #---------------------------------------------------------------------#
         # Other assignments                
         self.__dut = dut
         
-    ipmaxiWrInstWrite = lambda self, addr, data, be : self.__ipmaxiWrInstWrDrv.write(Transaction(addr=addr,data=data,be=be))
-    ipmaxiWrInstBPD   = property(lambda self : int(self.__dut.ipmaxi_wr_inst.B_BPD.value))
+    ipmaxiWrInstWrite   = lambda self, addr, data, be : self.__ipmaxiWrInstWrDrv.write(Transaction(addr=addr,data=data,be=be))
+    ipmaxiWrInstBPD     = property(lambda self : int(self.__dut.ipmaxi_wr_inst.B_BPD.value))
+    ipmaxiRdWrInstWrite = lambda self, addr, data, be : self.__ipmaxiRdWrInstWrWrDrv.write(Transaction(addr=addr,data=data,be=be))
+    ipmaxiRdWrInstRead  = lambda self, addr, raddr : self.__ipmaxiRdWrInstRdWrDrv.write(Transaction(addr=addr,data=raddr))
+    ipmaxiRdWrInstBPD   = property(lambda self : int(self.__dut.ipmaxi_rdwr_inst.B_BPD.value))
         
     @coroutine
     def start(self):
