@@ -9,6 +9,7 @@ from powlib.verify.agents.SystemAgent    import ClockDriver, ResetDriver
 from powlib.verify.agents.HandshakeAgent import HandshakeInterface, HandshakeWriteDriver, \
                                                 HandshakeReadDriver, HandshakeMonitor, \
                                                 AlwaysAllow, NeverAllow
+from powlib.verify.agents.BusAgent       import BusAgent
 from powlib.verify.blocks                import ScoreBlock, AssertBlock, SourceBlock, PrintBlock
 from powlib                              import Interface, Transaction, Namespace
 
@@ -22,6 +23,10 @@ BYTE_WIDTH = 8
 @test(skip=True)
 def test_wronly(dut):
     '''
+    Run the basic test for the write-only testbench. This test only
+    verifies the powlib_ipmaxi_wr core. Pretty basic stuff here. There's no
+    scoring, but instead you need to manually view the signals in order verify
+    whether or not it works.
     '''
     
     te = TestEnvironment(dut)
@@ -63,10 +68,15 @@ def test_wronly(dut):
     
     pass
     
-@test(skip=False)
+@test(skip=True)
 def test_rdwr(dut):
     '''
+    Run the basic test for the read-write-separate testbench. This test verifies
+    both the powlib_ipmaxi_wr powlib_ipmaxi_rd cores, though they're separately
+    instantiated in the testbench. Similar to the test_wr test, the user needs to
+    manually view the signals.
     '''
+    
     te = TestEnvironment(dut)
     yield te.start() 
     yield Timer(50,"ns")
@@ -98,6 +108,46 @@ def test_rdwr(dut):
                               raddr=+eachWord*BPD)
         
     yield Timer(1600, "ns")    
+    
+    
+@test(skip=False)
+def test_single(dut):
+    
+    te = TestEnvironment(dut)
+    yield te.start() 
+    yield Timer(50,"ns")
+    
+    BPD = te.ipmaxiSingleInstBPD
+    BEM = (1<<BPD)-1  
+          
+    # Write a bunch of words.
+    WORD_TOTAL = 32
+    for eachWord in range(WORD_TOTAL):
+        te.ipmaxiSingleInstBusDrv.write(addr=BRAM0_ADDR+eachWord*BPD,
+                                        data=randint(0, (1<<(BPD*BYTE_WIDTH))-1),
+                                        be=BEM&4)
+    for eachWord in range(WORD_TOTAL):
+        te.ipmaxiSingleInstBusDrv.write(addr=BRAM1_ADDR+eachWord*BPD,
+                                        data=randint(0, (1<<(BPD*BYTE_WIDTH))-1),
+                                        be=BEM)
+        
+    #yield Timer(1600, "ns")
+    
+    addrs = []
+    for eachWord in range(WORD_TOTAL):
+        addrs.append(BRAM0_ADDR+eachWord*BPD)
+    transList = yield te.ipmaxiSingleInstBusDrv.read(addr=addrs)
+    for trans in transList: te.log.info(trans)
+    
+    addrs = []
+    for eachWord in range(WORD_TOTAL):
+        addrs.append(BRAM1_ADDR+eachWord*BPD)
+    transList = yield te.ipmaxiSingleInstBusDrv.read(addr=addrs)
+    for trans in transList: te.log.info(trans)
+    
+    yield Timer(1600, "ns")
+    
+    pass
 
 class TestEnvironment(object):
     '''
@@ -111,6 +161,7 @@ class TestEnvironment(object):
         '''
         
         self.__rstDrvs = []
+        self.__log     = SimLog("cocotb.log")
         
         #---------------------------------------------------------------------#
         # Configure ipmaxi_wr_inst
@@ -186,16 +237,52 @@ class TestEnvironment(object):
 
         self.__ipmaxiRdWrInstWrWrDrv = wrWrDrv
         self.__ipmaxiRdWrInstRdWrDrv = rdWrDrv
+        
+        #---------------------------------------------------------------------#
+        # Configure ipmaxi_single_inst
+        
+        ipmaxiSingleInst = dut.ipmaxi_single_inst
+        
+        ClockDriver(interface=Interface(clk=ipmaxiSingleInst.clk),
+                    param_namespace=Namespace(clk=Namespace(period=(10,"ns"))),
+                    name="ipmaxiSingle")
+        rstDrv = ResetDriver(interface=Interface(rst=ipmaxiSingleInst.rst),
+                             param_namespace=Namespace(active_mode=1,
+                                                       associated_clock=ipmaxiSingleInst.clk,
+                                                       wait_cycles=32))
+        self.__rstDrvs.append(rstDrv)  
+        
+        busDrv = BusAgent(baseAddr=0x00000000,
+                          wrInterface=HandshakeInterface(addr=ipmaxiSingleInst.wraddr,
+                                                         data=ipmaxiSingleInst.wrdata,
+                                                         be=ipmaxiSingleInst.wrbe,
+                                                         op=ipmaxiSingleInst.wrop,
+                                                         vld=ipmaxiSingleInst.wrvld,
+                                                         rdy=ipmaxiSingleInst.wrrdy,
+                                                         clk=ipmaxiSingleInst.clk,
+                                                         rst=ipmaxiSingleInst.rst),
+                          rdInterface=HandshakeInterface(addr=ipmaxiSingleInst.rdaddr,
+                                                         data=ipmaxiSingleInst.rddata,
+                                                         be=ipmaxiSingleInst.rdbe,
+                                                         op=ipmaxiSingleInst.rdop,
+                                                         vld=ipmaxiSingleInst.rdvld,
+                                                         rdy=ipmaxiSingleInst.rdrdy,
+                                                         clk=ipmaxiSingleInst.clk,
+                                                         rst=ipmaxiSingleInst.rst))
+        self.__ipmaxiSingleInstBusDrv = busDrv
 
         #---------------------------------------------------------------------#
         # Other assignments                
         self.__dut = dut
         
-    ipmaxiWrInstWrite   = lambda self, addr, data, be : self.__ipmaxiWrInstWrDrv.write(Transaction(addr=addr,data=data,be=be))
-    ipmaxiWrInstBPD     = property(lambda self : int(self.__dut.ipmaxi_wr_inst.B_BPD.value))
-    ipmaxiRdWrInstWrite = lambda self, addr, data, be : self.__ipmaxiRdWrInstWrWrDrv.write(Transaction(addr=addr,data=data,be=be))
-    ipmaxiRdWrInstRead  = lambda self, addr, raddr : self.__ipmaxiRdWrInstRdWrDrv.write(Transaction(addr=addr,data=raddr))
-    ipmaxiRdWrInstBPD   = property(lambda self : int(self.__dut.ipmaxi_rdwr_inst.B_BPD.value))
+    log                    = property(lambda self : self.__log)
+    ipmaxiWrInstWrite      = lambda self, addr, data, be : self.__ipmaxiWrInstWrDrv.write(Transaction(addr=addr,data=data,be=be))
+    ipmaxiWrInstBPD        = property(lambda self : int(self.__dut.ipmaxi_wr_inst.B_BPD.value))
+    ipmaxiRdWrInstWrite    = lambda self, addr, data, be : self.__ipmaxiRdWrInstWrWrDrv.write(Transaction(addr=addr,data=data,be=be))
+    ipmaxiRdWrInstRead     = lambda self, addr, raddr : self.__ipmaxiRdWrInstRdWrDrv.write(Transaction(addr=addr,data=raddr))
+    ipmaxiRdWrInstBPD      = property(lambda self : int(self.__dut.ipmaxi_rdwr_inst.B_BPD.value))
+    ipmaxiSingleInstBusDrv = property(lambda self : self.__ipmaxiSingleInstBusDrv)
+    ipmaxiSingleInstBPD    = property(lambda self : int(self.__dut.ipmaxi_single_inst.B_BPD.value))
         
     @coroutine
     def start(self):
