@@ -123,11 +123,11 @@ def test_single(dut):
     # Write a bunch of words.
     WORD_TOTAL = 32
     for eachWord in range(WORD_TOTAL):
-        te.ipmaxiSingleInstBusDrv.write(addr=BRAM0_ADDR+eachWord*BPD,
+        te.ipmaxiSingleInstBusAgt.write(addr=BRAM0_ADDR+eachWord*BPD,
                                         data=randint(0, (1<<(BPD*BYTE_WIDTH))-1),
                                         be=BEM&4)
     for eachWord in range(WORD_TOTAL):
-        te.ipmaxiSingleInstBusDrv.write(addr=BRAM1_ADDR+eachWord*BPD,
+        te.ipmaxiSingleInstBusAgt.write(addr=BRAM1_ADDR+eachWord*BPD,
                                         data=randint(0, (1<<(BPD*BYTE_WIDTH))-1),
                                         be=BEM)
         
@@ -136,13 +136,13 @@ def test_single(dut):
     addrs = []
     for eachWord in range(WORD_TOTAL):
         addrs.append(BRAM0_ADDR+eachWord*BPD)
-    transList = yield te.ipmaxiSingleInstBusDrv.read(addr=addrs)
+    transList = yield te.ipmaxiSingleInstBusAgt.read(addr=addrs)
     for trans in transList: te.log.info(trans)
     
     addrs = []
     for eachWord in range(WORD_TOTAL):
         addrs.append(BRAM1_ADDR+eachWord*BPD)
-    transList = yield te.ipmaxiSingleInstBusDrv.read(addr=addrs)
+    transList = yield te.ipmaxiSingleInstBusAgt.read(addr=addrs)
     for trans in transList: te.log.info(trans)
     
     yield Timer(1600, "ns")
@@ -164,13 +164,55 @@ class TestEnvironment(object):
         self.__log     = SimLog("cocotb.log")
         
         #---------------------------------------------------------------------#
+        # Configure ipmaxi_full_inst
+        
+        ipmaxiFullInst = dut.ipmaxi_full_inst
+        
+        ClockDriver(interface=Interface(clk=ipmaxiFullInst.clk),
+                    param_namespace=Namespace(clk=Namespace(period=(10,"ns"))),
+                    name="ipmaxiFullInst")
+        rstDrv = ResetDriver(interface=Interface(rst=ipmaxiFullInst.rst),
+                             param_namespace=Namespace(active_mode=1,
+                                                       associated_clock=ipmaxiFullInst.clk,
+                                                       wait_cycles=32))
+        self.__rstDrvs.append(rstDrv)
+        
+        busAgts        = []
+        TOTAL_CCTBPLBS = int(ipmaxiFullInst.TOTAL_CCTBPLBS.value)
+        B_AW           = int(ipmaxiFullInst.B_AW.value) 
+        
+        for eachBusAgt in range(TOTAL_CCTBPLBS):
+            
+            baseAddr = (int(ipmaxiFullInst.B_BASES.value)>>(eachBusAgt*B_AW))&((1<<B_AW)-1)
+            busAgt = BusAgent(baseAddr=baseAddr,
+                              wrInterface=HandshakeInterface(addr=ipmaxiFullInst.wraddr[eachBusAgt],
+                                                             data=ipmaxiFullInst.wrdata[eachBusAgt],
+                                                             be=ipmaxiFullInst.wrbe[eachBusAgt],
+                                                             op=ipmaxiFullInst.wrop[eachBusAgt],
+                                                             vld=ipmaxiFullInst.wrvld[eachBusAgt],
+                                                             rdy=ipmaxiFullInst.wrrdy[eachBusAgt],
+                                                             clk=ipmaxiFullInst.clk,
+                                                             rst=ipmaxiFullInst.rst),
+                             rdInterface=HandshakeInterface(addr=ipmaxiFullInst.rdaddr[eachBusAgt],
+                                                            data=ipmaxiFullInst.rddata[eachBusAgt],
+                                                            be=ipmaxiFullInst.rdbe[eachBusAgt],
+                                                            op=ipmaxiFullInst.rdop[eachBusAgt],
+                                                            vld=ipmaxiFullInst.rdvld[eachBusAgt],
+                                                            rdy=ipmaxiFullInst.rdrdy[eachBusAgt],
+                                                            clk=ipmaxiFullInst.clk,
+                                                            rst=ipmaxiFullInst.rst))
+            busAgts.append(busAgt)
+        
+        
+        
+        #---------------------------------------------------------------------#
         # Configure ipmaxi_wr_inst
         
         ipmaxiWrInst = dut.ipmaxi_wr_inst
         
         ClockDriver(interface=Interface(clk=ipmaxiWrInst.clk),
                     param_namespace=Namespace(clk=Namespace(period=(10,"ns"))),
-                    name="ipmaxiWr")
+                    name="ipmaxiWrInst")
         rstDrv = ResetDriver(interface=Interface(rst=ipmaxiWrInst.rst),
                              param_namespace=Namespace(active_mode=1,
                                                        associated_clock=ipmaxiWrInst.clk,
@@ -199,7 +241,7 @@ class TestEnvironment(object):
 
         ClockDriver(interface=Interface(clk=ipmaxiRdWrInst.clk),
                     param_namespace=Namespace(clk=Namespace(period=(10,"ns"))),
-                    name="ipmaxiRdWr")
+                    name="ipmaxiRdWrInst")
         rstDrv = ResetDriver(interface=Interface(rst=ipmaxiRdWrInst.rst),
                              param_namespace=Namespace(active_mode=1,
                                                        associated_clock=ipmaxiRdWrInst.clk,
@@ -232,7 +274,7 @@ class TestEnvironment(object):
                                                          clk=ipmaxiRdWrInst.clk,
                                                          rst=ipmaxiRdWrInst.rst))                
         rdRdMon = HandshakeMonitor(interface=rdRdDrv._interface)
-        rdPrBlk = PrintBlock(name="ipmaxiRdWrInstRead")        
+        rdPrBlk = PrintBlock(name="ipmaxiRdWrInst")        
         rdRdMon.outport.connect(rdPrBlk.inport)
 
         self.__ipmaxiRdWrInstWrWrDrv = wrWrDrv
@@ -245,14 +287,14 @@ class TestEnvironment(object):
         
         ClockDriver(interface=Interface(clk=ipmaxiSingleInst.clk),
                     param_namespace=Namespace(clk=Namespace(period=(10,"ns"))),
-                    name="ipmaxiSingle")
+                    name="ipmaxiSingleInst")
         rstDrv = ResetDriver(interface=Interface(rst=ipmaxiSingleInst.rst),
                              param_namespace=Namespace(active_mode=1,
                                                        associated_clock=ipmaxiSingleInst.clk,
                                                        wait_cycles=32))
         self.__rstDrvs.append(rstDrv)  
         
-        busDrv = BusAgent(baseAddr=0x00000000,
+        busAgt = BusAgent(baseAddr=0x00000000,
                           wrInterface=HandshakeInterface(addr=ipmaxiSingleInst.wraddr,
                                                          data=ipmaxiSingleInst.wrdata,
                                                          be=ipmaxiSingleInst.wrbe,
@@ -269,7 +311,7 @@ class TestEnvironment(object):
                                                          rdy=ipmaxiSingleInst.rdrdy,
                                                          clk=ipmaxiSingleInst.clk,
                                                          rst=ipmaxiSingleInst.rst))
-        self.__ipmaxiSingleInstBusDrv = busDrv
+        self.__ipmaxiSingleInstBusAgt = busAgt
 
         #---------------------------------------------------------------------#
         # Other assignments                
@@ -281,7 +323,7 @@ class TestEnvironment(object):
     ipmaxiRdWrInstWrite    = lambda self, addr, data, be : self.__ipmaxiRdWrInstWrWrDrv.write(Transaction(addr=addr,data=data,be=be))
     ipmaxiRdWrInstRead     = lambda self, addr, raddr : self.__ipmaxiRdWrInstRdWrDrv.write(Transaction(addr=addr,data=raddr))
     ipmaxiRdWrInstBPD      = property(lambda self : int(self.__dut.ipmaxi_rdwr_inst.B_BPD.value))
-    ipmaxiSingleInstBusDrv = property(lambda self : self.__ipmaxiSingleInstBusDrv)
+    ipmaxiSingleInstBusAgt = property(lambda self : self.__ipmaxiSingleInstBusAgt)
     ipmaxiSingleInstBPD    = property(lambda self : int(self.__dut.ipmaxi_single_inst.B_BPD.value))
         
     @coroutine
