@@ -45,7 +45,7 @@ module test_ipmaxi_full();
   localparam                                OFF_3           = OFF_2+B_OPW;
   localparam                                B_WW            = OFF_3;
   localparam                                B_BASES         = {32'hC2001000,32'hC0000000,32'h00000004,32'h00000000};
-  localparam                                B_SIZES         = {32'hC2000FFF,32'h02000FFF,32'h00000003,32'h00000003};
+  localparam                                B_SIZES         = {32'h00000FFF,32'h02000FFF,32'h00000003,32'h00000003};
   
   wire                              clk, rst;
   wire       [TOTAL_INTRS-1:0]      clks, rsts;
