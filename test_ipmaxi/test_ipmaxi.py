@@ -185,7 +185,6 @@ def test_separate_0(dut):
     yield co0.join()
     yield co1.join()
     
-    
 @test(skip=False)
 def observe_wronly(dut):
     '''

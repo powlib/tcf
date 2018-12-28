@@ -1,3 +1,3 @@
 # Summary
 
-This repo contains the test cases for verifying the powlib hdl repo. The tests are dependent on the powlib hardware and simulation libraries, Cocotb, Python 3.6, and Icarus. Thus, it is recommended to recursively clone from the powlib repo. All testing was done with Python 3.6, but a lower version of Python may be used. Icarus Verilog was used as the simulator, however another one can be used if supported by Cocotb.
+This repo contains the test cases for verifying the powlib hdl repo. The tests are dependent on the powlib hardware and simulation libraries, Cocotb, Python 2.7, and Icarus. Thus, it is recommended to recursively clone from the powlib repo. Icarus Verilog was used as the simulator, however another one can be used if supported by Cocotb. For the testbenches utilizing an AXI subsystem, Vivado 2017.4 was used to generate the simulation netlist in verilog. With Vivado 2017.4, the BD files can be imported in order to view the block design. 
