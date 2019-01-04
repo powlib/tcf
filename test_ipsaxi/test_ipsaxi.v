@@ -34,6 +34,8 @@ module test_ipsaxi_wr();
   localparam B_WW           = B_DW+B_BEW+B_OPW;
   localparam EAR            = 0;
   localparam EDBG           = 0;
+  localparam                                MAX_BURSTW      = 9;
+  localparam [MAX_BURSTW*TOTAL_IPMAXIS-1:0] MAX_BURSTS      = {9'd128,9'd16};
 
   wire [B_AW-1:0] wraddr[0:TOTAL_IPS-1], rdaddr[0:TOTAL_IPS-1], awaddr[0:TOTAL_IPS-1];
   wire [B_WW-1:0] wrdatapacked[0:TOTAL_IPS-1], rddatapacked[0:TOTAL_IPS-1];
@@ -60,7 +62,7 @@ module test_ipsaxi_wr();
       .wrdata(rddatapacked[i+IPMAXIS_OFFSET]),
       .rddata(rddata[i+IPMAXIS_OFFSET]),.rdbe(rdbe[i+IPMAXIS_OFFSET]),.rdop(rdop[i+IPMAXIS_OFFSET]));
     powlib_ipmaxi #(
-      .ID({ID,"_IPMAXI",IDX_STR}),.EAR(EAR),.EDBG(EDBG),.B_BPD(B_BPD),.B_AW(B_AW)) 
+      .ID({ID,"_IPMAXI",IDX_STR}),.EAR(EAR),.EDBG(EDBG),.B_BPD(B_BPD),.B_AW(B_AW),.MAX_BURST(MAX_BURSTS[i*MAX_BURSTW+:MAX_BURSTW])) 
     ipmaxi_inst (
       .wraddr(wraddr[i+IPMAXIS_OFFSET]),.wrdata(wrdatapacked[i+IPMAXIS_OFFSET]),.wrvld(wrvld[i+IPMAXIS_OFFSET]),.wrrdy(wrrdy[i+IPMAXIS_OFFSET]),
       .rdaddr(rdaddr[i+IPMAXIS_OFFSET]),.rddata(rddatapacked[i+IPMAXIS_OFFSET]),.rdvld(rdvld[i+IPMAXIS_OFFSET]),.rdrdy(rdrdy[i+IPMAXIS_OFFSET]),
@@ -115,6 +117,7 @@ module test_ipsaxi_wr();
     .M01_AXI_0_awready(awready[1]),
     .M01_AXI_0_awsize(awsize[1]),
     .M01_AXI_0_awvalid(awvalid[1]),
+    .M01_AXI_0_bid(bid[1]),
     .M01_AXI_0_bready(bready[1]),
     .M01_AXI_0_bresp(bresp[1]),
     .M01_AXI_0_bvalid(bvalid[1]),
