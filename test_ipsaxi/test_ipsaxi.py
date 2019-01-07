@@ -5,8 +5,8 @@ Created on Thu Jan 03 19:01:39 2019
 @author: andrewandre
 """
 
-from cocotb.decorators import test, coroutine
-from cocotb.triggers import Timer
+from cocotb.decorators                   import test, coroutine
+from cocotb.triggers                     import Timer
 from powlib                              import Interface, Transaction, Namespace
 from powlib.verify.agents.SystemAgent    import ClockDriver, ResetDriver
 from powlib.verify.agents.HandshakeAgent import HandshakeInterface, HandshakeWriteDriver, \
@@ -20,6 +20,8 @@ BYTE_WIDTH = 8
 @test()
 def observ_wr(dut):
     '''
+    This test requires manual observation in order to verify the correctness 
+    of the transactions. This only 
     '''
     
     # Create the testing environment.
