@@ -67,6 +67,75 @@ class TestEnvironment(object):
         self.__rstDrvs = []
         
         #---------------------------------------------------------------------#
+        # Configure ipsaxiWrRdInst   
+        
+        ipsaxiWrRdInst = dut.ipsaxi_wr_rd_inst
+        
+        TOTAL_IPMAXIS  = int(ipsaxiWrRdInst.TOTAL_IPMAXIS.value)
+        IPMAXIS_OFFSET = int(ipsaxiWrRdInst.IPMAXIS_OFFSET.value)
+        TOTAL_IPSAXIS  = int(ipsaxiWrRdInst.TOTAL_IPSAXIS.value)
+        IPSAXIS_OFFSET = int(ipsaxiWrRdInst.IPSAXIS_OFFSET.value)        
+        
+        # Create the system agent.
+        ClockDriver(interface=Interface(clk=ipsaxiWrRdInst.clk),
+                    param_namespace=Namespace(clk=Namespace(period=(10,"ns"))),
+                    name="ipmaxiFullInst")
+        rstDrv = ResetDriver(interface=Interface(rst=ipsaxiWrRdInst.rst),
+                             param_namespace=Namespace(active_mode=1,
+                                                       associated_clock=ipsaxiWrRdInst.clk,
+                                                       wait_cycles=32)) 
+        self.__rstDrvs.append(rstDrv)
+        
+        # Create the bus agents.
+        busAgts = []
+        for eachBusAgt in range(TOTAL_IPMAXIS):
+            busAgt = BusAgent(baseAddr=0x00000000,
+                              wrInterface=HandshakeInterface(addr=ipsaxiWrRdInst.wraddr[eachBusAgt+IPMAXIS_OFFSET],
+                                                             data=ipsaxiWrRdInst.wrdata[eachBusAgt+IPMAXIS_OFFSET],
+                                                             be=ipsaxiWrRdInst.wrbe[eachBusAgt+IPMAXIS_OFFSET],
+                                                             op=ipsaxiWrRdInst.wrop[eachBusAgt+IPMAXIS_OFFSET],
+                                                             vld=ipsaxiWrRdInst.wrvld[eachBusAgt+IPMAXIS_OFFSET],
+                                                             rdy=ipsaxiWrRdInst.wrrdy[eachBusAgt+IPMAXIS_OFFSET],
+                                                             clk=ipsaxiWrRdInst.clk,
+                                                             rst=ipsaxiWrRdInst.rst),
+                              rdInterface=HandshakeInterface(addr=ipsaxiWrRdInst.rdaddr[eachBusAgt+IPMAXIS_OFFSET],
+                                                             data=ipsaxiWrRdInst.rddata[eachBusAgt+IPMAXIS_OFFSET],
+                                                             be=ipsaxiWrRdInst.rdbe[eachBusAgt+IPMAXIS_OFFSET],
+                                                             op=ipsaxiWrRdInst.rdop[eachBusAgt+IPMAXIS_OFFSET],
+                                                             vld=ipsaxiWrRdInst.rdvld[eachBusAgt+IPMAXIS_OFFSET],
+                                                             rdy=ipsaxiWrRdInst.rdrdy[eachBusAgt+IPMAXIS_OFFSET],
+                                                             clk=ipsaxiWrRdInst.clk,
+                                                             rst=ipsaxiWrRdInst.rst))  
+                              
+        # Create the other handshake agents.
+        for eachSlave in range(TOTAL_IPSAXIS):
+            rdRdDrv = HandshakeReadDriver(interface=HandshakeInterface(addr=ipsaxiWrRdInst.rdaddr[eachSlave+IPSAXIS_OFFSET],
+                                                                       data=ipsaxiWrRdInst.rddata[eachSlave+IPSAXIS_OFFSET],
+                                                                       be=ipsaxiWrRdInst.rdbe[eachSlave+IPSAXIS_OFFSET],
+                                                                       vld=ipsaxiWrRdInst.rdvld[eachSlave+IPSAXIS_OFFSET],
+                                                                       rdy=ipsaxiWrRdInst.rdrdy[eachSlave+IPSAXIS_OFFSET],
+                                                                       clk=ipsaxiWrRdInst.clk,
+                                                                       rst=ipsaxiWrRdInst.rst))
+            rdRdMon = HandshakeMonitor(interface=rdRdDrv._interface)
+            rdRdBlk = PrintBlock(name="rdRdBlk{}".format(eachSlave))        
+            rdRdMon.outport.connect(rdRdBlk.inport)   
+
+            wrRdDrv = HandshakeReadDriver(interface=HandshakeInterface(addr=ipsaxiWrRdInst.reqrdaddr[eachSlave+IPSAXIS_OFFSET],
+                                                                       vld=ipsaxiWrRdInst.reqrdvld[eachSlave+IPSAXIS_OFFSET],
+                                                                       rdy=ipsaxiWrRdInst.reqrdrdy[eachSlave+IPSAXIS_OFFSET],
+                                                                       clk=ipsaxiWrRdInst.clk,
+                                                                       rst=ipsaxiWrRdInst.rst))
+            wrRdMon = HandshakeMonitor(interface=wrRdDrv._interface) 
+            wrRdBlk = PrintBlock(name="wrRdBlk{}".format(eachSlave))        
+            wrRdMon.outport.connect(wrRdBlk.inport)         
+
+            wrWrDrv = HandshakeWriteDriver(interface=HandshakeInterface(data=ipsaxiWrRdInst.wrdata[eachSlave+IPSAXIS_OFFSET],
+                                                                        vld=ipsaxiWrRdInst.wrvld[eachSlave+IPSAXIS_OFFSET],
+                                                                        rdy=ipsaxiWrRdInst.wrrdy[eachSlave+IPSAXIS_OFFSET],
+                                                                        clk=ipsaxiWrRdInst.clk,
+                                                                        rst=ipsaxiWrRdInst.rst))                
+        
+        #---------------------------------------------------------------------#
         # Configure ipsaxiWrInst 
         
         ipsaxiWrInst   = dut.ipsaxi_wr_inst
