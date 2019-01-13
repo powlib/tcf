@@ -50,8 +50,8 @@ module test_ipsaxi_wr_rd();
        rvalid[0:TOTAL_IPS-1], rready[0:TOTAL_IPS-1], reqrdvld[0:TOTAL_IPS-1], reqrdrdy[0:TOTAL_IPS-1];
   wire [`AXI_RESPW-1:0] bresp[0:TOTAL_IPS-1], rresp[0:TOTAL_IPS-1];
   wire [`AXI_LENW-1:0] awlen[0:TOTAL_IPS-1], arlen[0:TOTAL_IPS-1];
-  wire [`AXI_SIZEW-1:0] awsize[0:TOTAL_IPS-1], arsize[0:TOTAL_IPS-1], arburst[0:TOTAL_IPS-1];
-  wire [`AXI_BURSTW-1:0] awburst[0:TOTAL_IPS-1];
+  wire [`AXI_SIZEW-1:0] awsize[0:TOTAL_IPS-1], arsize[0:TOTAL_IPS-1];
+  wire [`AXI_BURSTW-1:0] awburst[0:TOTAL_IPS-1], arburst[0:TOTAL_IPS-1];
   wire [B_DW-1:0] wdata[0:TOTAL_IPS-1], wrdata[0:TOTAL_IPS-1], rddata[0:TOTAL_IPS-1], rdata[0:TOTAL_IPS-1];
   wire [B_BEW-1:0] wstrb[0:TOTAL_IPS-1], wrbe[0:TOTAL_IPS-1], rdbe[0:TOTAL_IPS-1];
   wire [B_OPW-1:0] wrop[0:TOTAL_IPS-1], rdop[0:TOTAL_IPS-1];
@@ -89,7 +89,11 @@ module test_ipsaxi_wr_rd();
   
   for (i=0; i<TOTAL_IPSAXIS; i=i+1) begin
     localparam [powlib_itoaw(i)-1:0] IDX_STR = powlib_itoa(i);
-    localparam                       B_BPD   = (IS_WIDE[i+IPSAXIS_OFFSET])?B_WIDE_BPD:B_THIN_BPD;          
+    localparam                       B_BPD   = (IS_WIDE[i+IPSAXIS_OFFSET])?B_WIDE_BPD:B_THIN_BPD;   
+    if (i==1) begin
+      assign awid[i+IPSAXIS_OFFSET] = 0;
+      assign arid[i+IPSAXIS_OFFSET] = 0;
+    end
     powlib_ipsaxi_wr #(
       .ID({ID,"_IPMAXI_WR",IDX_STR}),.EAR(EAR),.EDBG(EDBG),.IDW(IDW),.WR_D(WR_D),.WR_S(WR_S),.B_BPD(B_BPD),.B_AW(B_AW))
     ipsaxi_wr (
@@ -145,24 +149,24 @@ module test_ipsaxi_wr_rd();
     .M00_AXI_0_wvalid(wvalid[0]),    
     .M01_AXI_0_araddr(araddr[1]),
     .M01_AXI_0_arburst(arburst[1]),
-    .M01_AXI_0_arid(arid[1]),
+    //.M01_AXI_0_arid(arid[1]),
     .M01_AXI_0_arlen(arlen[1]),
     .M01_AXI_0_arready(arready[1]),
     .M01_AXI_0_arsize(arsize[1]),
     .M01_AXI_0_arvalid(arvalid[1]),
     .M01_AXI_0_awaddr(awaddr[1]),
-    .M01_AXI_0_awid(awid[1]),
+    //.M01_AXI_0_awid(awid[1]),
     .M01_AXI_0_awburst(awburst[1]),
     .M01_AXI_0_awlen(awlen[1]),
     .M01_AXI_0_awready(awready[1]),
     .M01_AXI_0_awsize(awsize[1]),
     .M01_AXI_0_awvalid(awvalid[1]),
-    .M01_AXI_0_bid(bid[1]),
+    //.M01_AXI_0_bid(bid[1]),
     .M01_AXI_0_bready(bready[1]),
     .M01_AXI_0_bresp(bresp[1]),
     .M01_AXI_0_bvalid(bvalid[1]),    
     .M01_AXI_0_rdata(rdata[1]),
-    .M01_AXI_0_rid(rid[1]),
+    //.M01_AXI_0_rid(rid[1]),
     .M01_AXI_0_rlast(rlast[1]),
     .M01_AXI_0_rready(rready[1]),
     .M01_AXI_0_rresp(rresp[1]),
