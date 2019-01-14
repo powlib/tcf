@@ -185,7 +185,7 @@ def test_separate_0(dut):
     yield co0.join()
     yield co1.join()
     
-@test(skip=False)
+@test(skip=True)
 def observe_wronly(dut):
     '''
     Run the basic test for the write-only testbench. This test only
@@ -233,7 +233,7 @@ def observe_wronly(dut):
     
     pass
     
-@test(skip=False)
+@test(skip=True)
 def observe_rdwr(dut):
     '''
     Run the basic test for the read-write-separate testbench. This test verifies
@@ -275,7 +275,7 @@ def observe_rdwr(dut):
     yield Timer(1600, "ns")    
     
     
-@test(skip=False)
+@test(skip=True)
 def observe_single(dut):
     '''
     Similar to the other observe tests, this test is intended to only run a

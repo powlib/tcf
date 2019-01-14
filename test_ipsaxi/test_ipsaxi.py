@@ -5,18 +5,70 @@ Created on Thu Jan 03 19:01:39 2019
 @author: andrewandre
 """
 
+from cocotb                              import fork
 from cocotb.decorators                   import test, coroutine
+from cocotb.log                          import SimLog
 from cocotb.triggers                     import Timer
 from powlib                              import Interface, Transaction, Namespace
 from powlib.verify.agents.SystemAgent    import ClockDriver, ResetDriver
 from powlib.verify.agents.HandshakeAgent import HandshakeInterface, HandshakeWriteDriver, \
                                                 HandshakeReadDriver, HandshakeMonitor
 from powlib.verify.agents.BusAgent       import BusAgent
-from powlib.verify.blocks                import ScoreBlock, AssertBlock, PrintBlock, SwissBlock, RamBlock, ComposeBlocks
-from powlib.verify.block                 import Block, InPort, OutPort
+from powlib.verify.blocks                import ScoreBlock, AssertBlock, PrintBlock, SwissBlock, RamBlock, ComposeBlocks, BusRamConvertBlock
 from random                              import randint
 
 BYTE_WIDTH = 8
+
+@test(skip=False)
+def test_simul_0(dut):
+    '''
+
+    '''
+    
+    # Create the testing environment.
+    te = TestEnvironment(dut)
+    yield te.start()
+    
+    # Acquire some of the parameters.
+    BPDs            = te.ipsaxiFullInst.masterBPDs
+    busAgts         = te.ipsaxiFullInst.busAgts
+    M00_AXI_0       = te.ipsaxiFullInst.BD_ADDRS.M00_AXI_0
+    M01_AXI_0       = te.ipsaxiFullInst.BD_ADDRS.M01_AXI_0    
+    BURST_TOTAL     = 8
+    WORDS_PER_BURST = 32
+    
+    # Create the coroutine such that operations can occur simultaneously. 
+    @coroutine
+    def drivePlb(name,busAgt,BPD,baseAddr):
+        log = SimLog("cocotb.{}".format(name))
+        log.info("Starting drivePlb as a coroutine...")
+        for eachBurst in range(BURST_TOTAL):
+            log.info("Writing out burst {}...".format(eachBurst))
+            expDatas = []
+            expAddrs = []
+            expBes   = []
+            for eachWord in range(WORDS_PER_BURST):
+                addr = baseAddr+(eachWord+eachBurst*WORDS_PER_BURST)*BPD
+                data = randint(0,(1<<(BPD*BYTE_WIDTH))-1)
+                be   = randint(0,(1<<BPD)-1)
+                expDatas.append(data)
+                expAddrs.append(addr)
+                expBes.append(be)
+                busAgt.write(addr=addr,data=data,be=be)
+            log.info("Reading back and scoring burst...") 
+            transList = yield busAgt.read(addr=expAddrs)
+            for be, exp, actTrans in zip(expBes,expDatas,transList):
+                act = int(actTrans.data.value)
+                for eachByte in range(BPD):
+                    if (1<<eachByte)&be:
+                        mask = (((1<<BYTE_WIDTH)-1)<<(eachByte*BYTE_WIDTH))
+                        te.score(act=act&mask,exp=exp&mask)
+                
+    te.log.info("Starting coroutines..")
+    co0 = fork(drivePlb(name="plb0",busAgt=busAgts(0),BPD=BPDs(0),baseAddr=M00_AXI_0))
+    co1 = fork(drivePlb(name="plb1",busAgt=busAgts(1),BPD=BPDs(1),baseAddr=M01_AXI_0))
+    yield co0.join()
+    yield co1.join()
 
 @test(skip=True)
 def observ_wr(dut):
@@ -65,7 +117,7 @@ def observ_wr(dut):
     # Just wait long enough until we can see the transaction occur.
     yield Timer(1600,"ns")
     
-@test(skip=False)
+@test(skip=True)
 def observ_wr_rd(dut):
     '''
     This test requires manual observation in order to verify the correctness 
@@ -109,10 +161,7 @@ def observ_wr_rd(dut):
         addr = M01_AXI_0+eachWord*BPDs(1)
         data = randint(0, (1<<(BPDs(1)*BYTE_WIDTH))-1)
         be   = BEMs(1)  
-        te.ipsaxiWrRdInst.busAgts(1).write(addr=M01_AXI_0+eachWord*BPDs(1),
-                                           data=randint(0, (1<<(BPDs(1)*BYTE_WIDTH))-1),
-                                           be=BEMs(1))
-        te.ipsaxiWrRdInst.busAgts(0).write(addr=addr, data=data, be=be)
+        te.ipsaxiWrRdInst.busAgts(1).write(addr=addr, data=data, be=be)
         addrs1.append(addr)
         datas1.append(data)
         bes1.append(be)        
@@ -142,10 +191,121 @@ def observ_wr_rd(dut):
     yield Timer(1600,"ns")        
 
 class TestEnvironment(object):
+    '''
+    Construct the test environment.
+    '''
     
     def __init__(self, dut):
         
+        # This list is needed to gather all the reset drivers.
         self.__rstDrvs = []
+        
+        # General purpose logger.
+        self.__log = SimLog("cocotb.log")
+        
+        # Create the blocks that will be shared with all the test systems.
+        scrBlk = ScoreBlock(name="score")
+        astBlk = AssertBlock()
+        
+        # Perform some connections.
+        ComposeBlocks(scrBlk, astBlk)       
+        
+        # The score block needs to associated with the test environment object.
+        self.__scrBlk = scrBlk
+        
+        #---------------------------------------------------------------------#
+        # Configure ipsaxiFullInst          
+        
+        ipsaxiFullInst = dut.ipsaxi_full_inst   
+        
+        TOTAL_IPMAXIS  = int(ipsaxiFullInst.TOTAL_IPMAXIS.value)
+        IPMAXIS_OFFSET = int(ipsaxiFullInst.IPMAXIS_OFFSET.value)
+        TOTAL_IPSAXIS  = int(ipsaxiFullInst.TOTAL_IPSAXIS.value)
+        IPSAXIS_OFFSET = int(ipsaxiFullInst.IPSAXIS_OFFSET.value)       
+        
+        # Create the system agent.
+        ClockDriver(interface=Interface(clk=ipsaxiFullInst.clk),
+                    param_namespace=Namespace(clk=Namespace(period=(10,"ns"))),
+                    name="ipmaxiFullInst")
+        rstDrv = ResetDriver(interface=Interface(rst=ipsaxiFullInst.rst),
+                             param_namespace=Namespace(active_mode=1,
+                                                       associated_clock=ipsaxiFullInst.clk,
+                                                       wait_cycles=32)) 
+        self.__rstDrvs.append(rstDrv) 
+        
+        # Create the bus agents that connect to the IP Master AXI cores.
+        busAgts = []
+        BPDs    = []
+        for eachBusAgt in range(TOTAL_IPMAXIS):
+            
+            # Determine the BPD for the IP Master AXI.
+            BPD = int(ipsaxiFullInst.B_WIDE_BPD.value) if (int(ipsaxiFullInst.IS_WIDE.value)&(1<<(eachBusAgt+TOTAL_IPMAXIS))) else int(ipsaxiFullInst.B_THIN_BPD.value) 
+            
+            # Create the bus agent itself.
+            busAgt = BusAgent(baseAddr=0x00000000,
+                              wrInterface=HandshakeInterface(addr=ipsaxiFullInst.wraddr[eachBusAgt+IPMAXIS_OFFSET],
+                                                             data=ipsaxiFullInst.wrdata[eachBusAgt+IPMAXIS_OFFSET],
+                                                             be=ipsaxiFullInst.wrbe[eachBusAgt+IPMAXIS_OFFSET],
+                                                             op=ipsaxiFullInst.wrop[eachBusAgt+IPMAXIS_OFFSET],
+                                                             vld=ipsaxiFullInst.wrvld[eachBusAgt+IPMAXIS_OFFSET],
+                                                             rdy=ipsaxiFullInst.wrrdy[eachBusAgt+IPMAXIS_OFFSET],
+                                                             clk=ipsaxiFullInst.clk,
+                                                             rst=ipsaxiFullInst.rst),
+                              rdInterface=HandshakeInterface(addr=ipsaxiFullInst.rdaddr[eachBusAgt+IPMAXIS_OFFSET],
+                                                             data=ipsaxiFullInst.rddata[eachBusAgt+IPMAXIS_OFFSET],
+                                                             be=ipsaxiFullInst.rdbe[eachBusAgt+IPMAXIS_OFFSET],
+                                                             op=ipsaxiFullInst.rdop[eachBusAgt+IPMAXIS_OFFSET],
+                                                             vld=ipsaxiFullInst.rdvld[eachBusAgt+IPMAXIS_OFFSET],
+                                                             rdy=ipsaxiFullInst.rdrdy[eachBusAgt+IPMAXIS_OFFSET],
+                                                             clk=ipsaxiFullInst.clk,
+                                                             rst=ipsaxiFullInst.rst))
+            # Store the creatd data.
+            busAgts.append(busAgt) 
+            BPDs.append(BPD)  
+            
+        # Create the bus agents that connect to the IP Slave AXI cores.
+        for eachBusAgt in range(TOTAL_IPSAXIS):
+            
+            # Determine the BPD for the IP Slave AXI.
+            BPD = int(ipsaxiFullInst.B_WIDE_BPD.value) if (int(ipsaxiFullInst.IS_WIDE.value)&(1<<(eachBusAgt+IPSAXIS_OFFSET))) else int(ipsaxiFullInst.B_THIN_BPD.value)
+
+            # Create the agent itself.
+            busAgt = BusAgent(baseAddr=0x00000000,
+                              wrInterface=HandshakeInterface(addr=ipsaxiFullInst.wraddr[eachBusAgt+IPSAXIS_OFFSET],
+                                                             data=ipsaxiFullInst.wrdata[eachBusAgt+IPSAXIS_OFFSET],
+                                                             be=ipsaxiFullInst.wrbe[eachBusAgt+IPSAXIS_OFFSET],
+                                                             op=ipsaxiFullInst.wrop[eachBusAgt+IPSAXIS_OFFSET],
+                                                             vld=ipsaxiFullInst.wrvld[eachBusAgt+IPSAXIS_OFFSET],
+                                                             rdy=ipsaxiFullInst.wrrdy[eachBusAgt+IPSAXIS_OFFSET],
+                                                             clk=ipsaxiFullInst.clk,
+                                                             rst=ipsaxiFullInst.rst),
+                              rdInterface=HandshakeInterface(addr=ipsaxiFullInst.rdaddr[eachBusAgt+IPSAXIS_OFFSET],
+                                                             data=ipsaxiFullInst.rddata[eachBusAgt+IPSAXIS_OFFSET],
+                                                             be=ipsaxiFullInst.rdbe[eachBusAgt+IPSAXIS_OFFSET],
+                                                             op=ipsaxiFullInst.rdop[eachBusAgt+IPSAXIS_OFFSET],
+                                                             vld=ipsaxiFullInst.rdvld[eachBusAgt+IPSAXIS_OFFSET],
+                                                             rdy=ipsaxiFullInst.rdrdy[eachBusAgt+IPSAXIS_OFFSET],
+                                                             clk=ipsaxiFullInst.clk,
+                                                             rst=ipsaxiFullInst.rst))    
+                              
+            # Create the RAM block with which memory accesses will be made.
+            cvtBlk = BusRamConvertBlock(bpd=BPD)
+            ramBlk = RamBlock(bpd=BPD)                              
+            
+            # Perform the connections.
+            busAgt.outport.connect(cvtBlk.busInport)
+            cvtBlk.busOutport.connect(busAgt.inport)
+            ramBlk.outport.connect(cvtBlk.ramInport)
+            cvtBlk.ramOutport.connect(ramBlk.inport)
+            
+        # Store the pertinent data with the test environment object.
+        ipsaxiFullInstBusAgts = list(busAgts) # It's important to perform shallow copies.
+        ipsaxiFullInstBPDs    = list(BPDs)
+        self.__ipsaxiFullInst = Namespace(busAgts    = lambda idx : ipsaxiFullInstBusAgts[idx], 
+                                          masterBPDs = lambda idx : ipsaxiFullInstBPDs[idx],
+                                          BD_ADDRS   = Namespace(M00_AXI_0=0x44A00000,
+                                                                 M01_AXI_0=0x44A10000,
+                                                                 SIZE=64*1024))    
         
         #---------------------------------------------------------------------#
         # Configure ipsaxiWrRdInst   
@@ -312,8 +472,11 @@ class TestEnvironment(object):
         self.__dut = dut
         pass
     
+    log            = property(lambda self : self.__log)
+    score          = lambda self, act, exp : self.__scrBlk.compare(act,exp)
     ipsaxiWrInst   = property(lambda self : self.__ipsaxiWrInst)    
     ipsaxiWrRdInst = property(lambda self : self.__ipsaxiWrRdInst)
+    ipsaxiFullInst = property(lambda self : self.__ipsaxiFullInst)
     
     @coroutine
     def start(self):
