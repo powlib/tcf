@@ -1,5 +1,5 @@
 *.ignore
-*sim_build
+*build
 *.xml
 *.pyc
 *.vcd

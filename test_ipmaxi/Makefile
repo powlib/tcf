@@ -19,7 +19,7 @@ endif
 
 ifeq ($(TOPLEVEL_LANG),verilog)
     VERILOG_SOURCES = $(POWLIB)/hdl/*.v $(PWD)/*.v
-    COMPILE_ARGS = -g 2001 -I $(POWLIB)/hdl/     
+    COMPILE_ARGS = -g 2001 -I $(POWLIB)/hdl/ -s glbl 
     TOPLEVEL = test_ipmaxi
 else
     $(error "A valid value (verilog) was not provided for TOPLEVEL_LANG=$(TOPLEVEL_LANG)")
