@@ -1,53 +1,11 @@
-from cocotb          import test, coroutine, fork
-from cocotb.triggers import Timer, NullTrigger, ReadOnly
-from cocotb.result   import TestFailure, TestSuccess, ReturnValue
-from powlib          import Transaction, Namespace
-from powlib.drivers  import CntrDriver
-from powlib.monitors import FlipflopMonitor
-from powlib.utils    import TestEnvironment
-from random          import randint
-
-
-@coroutine
-def perform_setup(dut):
-    '''
-    Prepares the test environments.
-    '''
-
-    T   = 3  # Number of counters to test. 
-    tes = [] # List of test environments.
-    rcs = [] # List of running coroutines.
-
-    # Configure each test environment.
-    for each_cntr in range(T):
-
-        # Create the test environment.
-        te = TestEnvironment(dut=getattr(dut,"dut{}".format(each_cntr)), 
-                             name="testbench{}".format(each_cntr))
-
-        # Add the clocks and resets.
-        te._add_clock(clock=te.dut.clk, period=(5,"ns"))
-        te._add_reset(reset=te.dut.rst, associated_clock=te.dut.clk)
-
-        # Add the driver and monitor.
-        te.c = Namespace(d=CntrDriver(entity=te.dut, clock=te.dut.clk),
-                         m=FlipflopMonitor(entity=te.dut.cntr_inst, 
-                                           waitstartcycles=1,
-                                           clock=te.dut.clk, 
-                                           reset=te.dut.rst))
-
-        # Start the environment.
-        rc = fork(te.start())
-
-        # Add the objects to their associated lists.
-        tes.append(te)
-        rcs.append(rc)
-
-    # Yield on the running coroutines.
-    for rc in rcs: yield rc.join()
-
-    # Return the test environments.
-    raise ReturnValue(tes)
+from cocotb                             import test, coroutine, fork
+from cocotb.triggers                    import Timer, NullTrigger, ReadOnly
+from cocotb.result                      import TestFailure, TestSuccess, ReturnValue
+from powlib                             import Transaction, Namespace, Interface
+from powlib.verify.agents.SystemAgent   import ClockDriver, ResetDriver
+from powlib.verify.agents.RegisterAgent import RegisterDriver, RegisterMonitor
+from powlib.verify.blocks               import SwissBlock, ScoreBlock, SourceBlock, ComposeBlocks, AssertBlock
+from random                             import randint
 
 @test(skip=False)
 def test_advance(dut):
@@ -55,50 +13,25 @@ def test_advance(dut):
     This test simply tests the counting operation
     of the counters.
     '''
+    
+    # Create the test environments for each of the duts.
+    TOTAL_DUTS = 3
+    tes = tuple( TestEnvironment(getattr(dut, "dut{}".format(index))) for index in range(TOTAL_DUTS))
+    for te in tes: yield te.start()
+    
+    # Write the transactions to the counters.
+    ITRS = 270
+    for _ in range(ITRS):
+        for te in tes: te.write(adv=1)
+    for te in tes: te.write(adv=0)
+    
+    # Wait until all transactions have been processed
+    frks = []
+    for te in tes: frks.append(fork(te.wait()))
+    for frk in frks: yield frk.join()
 
-    # Prepare the test envrionments.
-    tes = yield perform_setup(dut)    
 
-    # Implement the test coroutine.
-    @coroutine
-    def test(te):
-
-        # Gather important data.
-        width = te.c.d.W
-        aval  = te.c.d.X
-        init  = te.c.d.INIT
-        total = 1<<width
-        itrs  = 270
-
-        # Enable the counter for the specified amount of 
-        # clock cycles.
-        yield te.c.d.write(adv=1, sync=False)
-        for _ in range(itrs): yield te.c.d.cycle()
-        yield te.c.d.write(adv=0, sync=False)
-
-        # Generate the expected data.
-        exps = [(val*aval+init)%total for val in range(itrs)]
-
-        for idx, exp in enumerate(exps):
-            act = te.c.m[idx]
-            te.log.info("Actual: <{}>, Expected: <{}>...".format(act,exp))
-            if act!=exp: 
-                te.log.error("Test failed!")
-                raise ReturnValue(False)
-
-        te.log.info("Test successful...")
-        raise ReturnValue(True)
-
-    # Run the test for both counters.
-    rcs = [fork(test(te)) for te in tes if te.c.d.EDX==0]
-    for rc in rcs: yield rc.join()
-
-    # Check if any of the coroutines failed.
-    if any(rc.retval==False for rc in rcs): raise TestFailure()
-
-    raise TestSuccess()
-
-@test(skip=False)
+@test(skip=True)
 def test_dynamic(dut):
     '''
     This test only operates over the counters configured in dynamic 
@@ -106,113 +39,97 @@ def test_dynamic(dut):
     test, however it randomly sets the dynamic x value.
     '''    
 
-    # Prepare the test envrionments.
-    tes = yield perform_setup(dut) 
-
-    # Implement the test coroutine.
-    @coroutine
-    def test(te):
-
-        # Determine the parameters of the test.
-        getval  = lambda w : randint(0,(1<<w)-1)
-        width   = te.c.d.W
-        init    = te.c.d.INIT
-        total   = 1<<width
-
-        incx    = getval(4)
-        incitrs = randint(1,total)
-        decx    = -getval(4)
-        decitrs = randint(1,total)
-        itrs    = incitrs+decitrs
-
-        # Determine the expected results.
-        incexp  = [(val*incx+init)%total for val in range(incitrs)]
-        decinit = incexp[-1]
-        decexp  = [((val+1)*decx+decinit)%total for val in range(decitrs)]
-        exp     = list() # The initial value will be registered twice, so it's expected!
-        exp.extend(incexp)
-        exp.extend(decexp)
-
-        #for val in exp: te.log.info("exp: {:x}".format(val))        
-
-        # Determine the actual transactions.
-        incact  = [Transaction(dx=incx,adv=1) for _ in range(incitrs-1)]
-        decact  = [Transaction(dx=decx,adv=1) for _ in range(decitrs+1)]
-        act     = list()
-        act.extend(incact)
-        act.extend(decact)
-
-        # Write out the transaction
-        for trans in act: te.c.d.append(trans)
-
-        # Wait until the appropriate amount of cycles have passed.
-        yield te.c.d.cycle(itrs+1)        
-        
-        # Compare results
-        for idx, ex in enumerate(exp):
-            ac = te.c.m[idx]
-            te.log.info("Actual: <{}>, Expected: <{}>...".format(ac,ex))
-            if ac!=ex: 
-                te.log.error("Test failed!")
-                raise ReturnValue(False)
-
-        te.log.info("Test successful...")
-        raise ReturnValue(True)
-        
-
-    # Run the test for each counter.
-    rcs = [fork(test(te)) for te in tes if te.c.d.EDX!=0]
-    for rc in rcs: yield rc.join()
-
-    # Check if any of the coroutines failed.
-    if any(rc.retval==False for rc in rcs): raise TestFailure()        
-
-
-    raise TestSuccess()
+class TestEnvironment(object):
+    '''
+    Defines the test environment. All blocks, connections, and initial operations
+    that are common with all tests are defined.
+    '''
     
-
-@test(skip=True)    
-def test_eyeball(dut):
-    '''
-    This tests various operations of the counter.
-
-    This is incredibly lame, but this test was verified with
-    the good ol' fashion "eye-ball" approach; I simply looked
-    at the waveforms and made sure the output results made sense.
-    '''
-
-    # Prepare the test envrionments.
-    tes = yield perform_setup(dut)  
-
-    # Implement the test coroutine.
-    @coroutine
-    def test(te):
-
-        # Gather important data.
-        width   = te.c.d.W
-        aval    = te.c.d.X
-        init    = te.c.d.INIT
-        total   = 1<<width
-        itrs    = [4, 3, 2, 3, 3, 6, 5]
-
+    def __init__(self, dut):
+        '''
+        Construct the test environment with the given dut.
+        '''
         
-        for _ in range(itrs[0]): te.c.d.append(Transaction(adv=1))
-        for _ in range(itrs[1]): te.c.d.append(Transaction(adv=1,clr=1))
-        for _ in range(itrs[2]): te.c.d.append(Transaction(adv=1,clr=0))
-        for _ in range(itrs[3]): te.c.d.append(Transaction(adv=0,clr=0))
-        for _ in range(itrs[4]): te.c.d.append(Transaction(ld=0,nval=randint(0,total-1)))
-        for _ in range(itrs[5]): te.c.d.append(Transaction(ld=1,nval=randint(0,total-1)))
-        for _ in range(itrs[6]): te.c.d.append(Transaction(adv=1))
-        yield te.c.d.cycle(amount=sum(itrs))
-
-        raise ReturnValue(True)
-
-
-    # Run the test for both counters.
-    rcs = [fork(test(te)) for te in tes]
-    for rc in rcs: yield rc.join()
-
-    # Check if any of the coroutines failed.
-    if any(rc.retval==False for rc in rcs): raise TestFailure()
-
-    raise TestSuccess()        
+        self.__dut         = dut
+        self.__wait_cycles = 0
+        
+        # Create the blocks.
+        self.__clkdrv = ClockDriver(interface=Interface(clk=dut.clk),
+                                    param_namespace=Namespace(clk=Namespace(period=(5,"ns"))))
+        self.__rstdrv = ResetDriver(interface=Interface(rst=dut.rst),
+                                    param_namespace=Namespace(rst=Namespace(associated_clock=dut.clk)))
+        self.__cntrindrv = RegisterDriver(interface=Interface(clk=dut.clk,
+                                                              rst=dut.rst,
+                                                              nval=dut.nval,
+                                                              adv=dut.adv,
+                                                              ld=dut.ld,
+                                                              dx=dut.dx,
+                                                              clr=dut.clr))    
+        self.__cntroutmon = RegisterMonitor(interface=Interface(clk=dut.clk,
+                                                                rst=dut.rst,
+                                                                cntr=dut.cntr))
+        self.__sourceblk = SourceBlock()
+        self.__cntrmdl   = CounterModel(self.W, self.X, self.INIT, self.ELD, self.EDX)
+        self.__scoreblk  = ScoreBlock(name="cntr")
+        self.__assertblk = AssertBlock()
+        
+        # Create the connections.
+        ComposeBlocks(self.__sourceblk,  self.__cntrmdl, self.__scoreblk.inports(0))
+        ComposeBlocks(self.__sourceblk,  self.__cntrindrv)
+        ComposeBlocks(self.__cntroutmon, self.__scoreblk.inports(1))
+        ComposeBlocks(self.__scoreblk,   self.__assertblk)
+        
+    W    = property(lambda self : int(self.__dut.W.value))
+    X    = property(lambda self : int(self.__dut.X.value))
+    INIT = property(lambda self : int(self.__dut.INIT.value))
+    ELD  = property(lambda self : int(self.__dut.ELD.value))
+    EDX  = property(lambda self : int(self.__dut.EDX.value))
+        
+    @coroutine
+    def start(self):
+        '''
+        Blocks until the starting operations are complete.
+        '''
+        yield self.__rstdrv.wait()  
+        
+    
+    def write(self, nval=0, adv=0, ld=0, dx=0, clr=0):
+        '''
+        Writes a transaction on to the counter.
+        '''
+        self.__sourceblk.write(Transaction(nval=nval,adv=adv,ld=ld,dx=dx,clr=clr))
+        self.__wait_cycles += 1   
+        
+    @coroutine
+    def wait(self):
+        '''
+        Wait until all transactions have been processed.
+        '''
+        for _ in range(self.__wait_cycles):
+            yield self.__cntrindrv._interface._synchronize()
+        
+class CounterModel(SwissBlock):
+    '''
+    Defines the counter model. In order for this model to behave like the 
+    hardware, it should receive a transaction for every clock cycle.
+    '''
+    
+    def __init__(self, W, X, INIT, ELD, EDX):
+        SwissBlock.__init__(self, trans_func=self._counter_func)
+        self.__MAX_VALUE = 1<<W
+        self.__X         = X
+        self.__INIT      = INIT
+        self.__EDX       = EDX
+        self.__cntr      = self.__INIT
+    
+    def _counter_func(self, trans):
+        cntr = self.__cntr
+        if trans.clr!=0:
+            self.__cntr = self.__INIT
+        elif trans.ld!=0 and self.__ELD!=0:
+            self.__cntr = trans.nval
+        elif trans.adv!=0:
+            x0 = trans.dx if self.__EDX!=0 else self.__X
+            self.__cntr = (self.__cntr+x0)%self.__MAX_VALUE
+        return Transaction(cntr=cntr)
+    
