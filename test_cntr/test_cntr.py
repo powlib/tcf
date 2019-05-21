@@ -1,13 +1,12 @@
 from cocotb                             import test, coroutine, fork
-from cocotb.triggers                    import Timer, NullTrigger, ReadOnly
-from cocotb.result                      import TestFailure, TestSuccess, ReturnValue
+from cocotb.log                         import SimLog
 from powlib                             import Transaction, Namespace, Interface
 from powlib.verify.agents.SystemAgent   import ClockDriver, ResetDriver
 from powlib.verify.agents.RegisterAgent import RegisterDriver, RegisterMonitor
 from powlib.verify.blocks               import SwissBlock, ScoreBlock, SourceBlock, ComposeBlocks, AssertBlock
 from random                             import randint
 
-@test(skip=False)
+@test(skip=True)
 def test_advance(dut):
     '''
     This test simply tests the counting operation
@@ -16,7 +15,7 @@ def test_advance(dut):
     
     # Create the test environments for each of the duts.
     TOTAL_DUTS = 3
-    tes = tuple( TestEnvironment(getattr(dut, "dut{}".format(index))) for index in range(TOTAL_DUTS))
+    tes = tuple( TestEnvironment(getattr(dut, "dut{}".format(index)), str(index)) for index in range(TOTAL_DUTS))
     for te in tes: yield te.start()
     
     # Write the transactions to the counters.
@@ -31,13 +30,36 @@ def test_advance(dut):
     for frk in frks: yield frk.join()
 
 
-@test(skip=True)
+@test(skip=False)
 def test_dynamic(dut):
     '''
     This test only operates over the counters configured in dynamic 
-    increment / decrement mode of operation. This is basically the advcance
-    test, however it randomly sets the dynamic x value.
+    increment / decrement mode of operation. This is basically the advance
+    test, however it randomly sets the dynamic x value and loads a new value
+    into the counters.
     '''    
+    
+    # Create the test environments for each of the duts.
+    TOTAL_DUTS = 3
+    tes = tuple( TestEnvironment(getattr(dut, "dut{}".format(index)), str(index)) for index in range(TOTAL_DUTS))
+    for te in tes: yield te.start()
+
+    # Write the transactions to the counters.
+    for _ in range(randint(128, 256)):
+        dx = 2*randint(0,1)-1
+        for te in tes: te.write(adv=1, dx=dx)
+    for te in tes: 
+        nval = randint(0, (1<<te.W)-1)
+        te.write(nval=nval, ld=1)
+    for _ in range(randint(128, 256)):
+        dx = 2*randint(0,1)-1
+        for te in tes: te.write(adv=1, dx=dx)        
+    for te in tes: te.write(adv=0)
+    
+    # Wait until all transactions have been processed
+    frks = []
+    for te in tes: frks.append(fork(te.wait()))
+    for frk in frks: yield frk.join()   
 
 class TestEnvironment(object):
     '''
@@ -45,13 +67,14 @@ class TestEnvironment(object):
     that are common with all tests are defined.
     '''
     
-    def __init__(self, dut):
+    def __init__(self, dut, name):
         '''
         Construct the test environment with the given dut.
         '''
         
         self.__dut         = dut
         self.__wait_cycles = 0
+        self.__log         = SimLog("cocotb.logger")
         
         # Create the blocks.
         self.__clkdrv = ClockDriver(interface=Interface(clk=dut.clk),
@@ -70,7 +93,7 @@ class TestEnvironment(object):
                                                                 cntr=dut.cntr))
         self.__sourceblk = SourceBlock()
         self.__cntrmdl   = CounterModel(self.W, self.X, self.INIT, self.ELD, self.EDX)
-        self.__scoreblk  = ScoreBlock(name="cntr")
+        self.__scoreblk  = ScoreBlock(name=name+"_cntr")
         self.__assertblk = AssertBlock()
         
         # Create the connections.
@@ -79,6 +102,7 @@ class TestEnvironment(object):
         ComposeBlocks(self.__cntroutmon, self.__scoreblk.inports(1))
         ComposeBlocks(self.__scoreblk,   self.__assertblk)
         
+    log  = property(lambda self : self.__log)
     W    = property(lambda self : int(self.__dut.W.value))
     X    = property(lambda self : int(self.__dut.X.value))
     INIT = property(lambda self : int(self.__dut.INIT.value))
@@ -119,6 +143,7 @@ class CounterModel(SwissBlock):
         self.__MAX_VALUE = 1<<W
         self.__X         = X
         self.__INIT      = INIT
+        self.__ELD       = ELD
         self.__EDX       = EDX
         self.__cntr      = self.__INIT
     
