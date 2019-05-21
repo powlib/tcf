@@ -6,7 +6,7 @@ from powlib.verify.agents.RegisterAgent import RegisterDriver, RegisterMonitor
 from powlib.verify.blocks               import SwissBlock, ScoreBlock, SourceBlock, ComposeBlocks, AssertBlock
 from random                             import randint
 
-@test(skip=True)
+@test(skip=False)
 def test_advance(dut):
     '''
     This test simply tests the counting operation
