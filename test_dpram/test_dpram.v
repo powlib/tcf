@@ -4,9 +4,10 @@ module test_dpram();
 
   localparam              W = 32;
   localparam              D = 4;
+  localparam     TOTAL_DUTS = 3;
   localparam [W*D-1:0] INIT = {32'h0FED,32'hCBA9,32'h5678,32'h1234}; // Initialize the memory
 
-  wire                  rst;
+  wire                  rst = 0;
   
   initial begin
     $dumpfile("waveform.vcd");
